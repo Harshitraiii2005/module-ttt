@@ -131,9 +131,22 @@ def run_job(
             JobStage.TREE_GENERATION,
             status_message="Building document tree",
         )
-        indexer.graph_file_index(FileIndexModel(**parse_result["file_index"]))
 
-        ctx.set_stage(JobStage.INDEXING, status_message="Indexing document elements")
+        def _on_tree_progress(done: int, total: int) -> None:
+            """Forward progress updates through the job context."""
+            ctx.checkpoint(
+                done_units=done,
+                total_units=total,
+                status_message=f"Building document tree ({done}/{total})",
+            )
+
+        indexer.graph_file_index(
+            FileIndexModel(**parse_result["file_index"]),
+            progress=_on_tree_progress,
+        )
+
+        ctx.set_stage(JobStage.INDEXING,
+                      status_message="Indexing document elements")
         document = DocumentModel.from_dict(parse_result["document"])
 
         def _on_progress(done: int, total: int) -> None:

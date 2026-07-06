@@ -1,4 +1,5 @@
 import time
+import os
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -23,7 +24,6 @@ from app.services.package_text_tokenizer import TextTokenizer
 from app.services.package_symbol_generator import SymbolGenerator
 from talkingdb.clients.sqlite import sqlite_conn
 from talkingdb.logger.console import logger
-from app.core import config
 
 
 class IndexerService:
@@ -31,12 +31,33 @@ class IndexerService:
         self.gm = GraphModel.create(GraphModel.make_id(uuid4().hex), True)
         self.tokenizer = TextTokenizer()
         self.symbol_generator = SymbolGenerator()
-        self.max_workers = (
-            max_workers if max_workers is not None else config.INDEXER_MAX_WORKERS
-        )
+        self.max_workers = max_workers or (os.cpu_count() * 2)
 
-    def graph_file_index(self, file_index: FileIndexModel) -> GraphModel:
+    def graph_file_index(
+        self,
+        file_index: FileIndexModel,
+        progress: Optional[ProgressCallback] = None,
+    ) -> GraphModel:
+        """Build the graph's tree-of-headings structure.
+
+        ``progress`` receives ``(done_units, total_units)`` updates as nodes
+        are added, mirroring the callback contract used by
+        :meth:`index_document`. A cheap pre-pass counts total nodes so the
+        first callback can report a real denominator instead of an unknown
+        one.
+        """
+
+        def count_nodes(node: IndexItem) -> int:
+            return 1 + sum(count_nodes(child) for child in node.child)
+
+        total = sum(count_nodes(top) for top in file_index.nodes)
+        done = 0
+
+        if progress is not None:
+            progress(0, total)
+
         def walk(node: IndexItem, parent_id: str = None):
+            nonlocal done
             node_id = node.id
 
             self.gm.graph.add_node(
@@ -47,6 +68,10 @@ class IndexerService:
 
             if parent_id:
                 self.gm.graph.add_edge(parent_id, node_id, type="part_of")
+
+            done += 1
+            if progress is not None:
+                progress(done, total)
 
             for child in node.child:
                 walk(child, node_id)
