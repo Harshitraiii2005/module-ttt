@@ -101,15 +101,7 @@ class JobContext:
         *,
         status_message: Optional[str] = None,
     ) -> None:
-        """Update the current job stage.
-
-        ``done_units``/``total_units`` are scoped to whichever stage set
-        them (currently only INDEXING). They're reset to 0 on every stage
-        change so a new stage never inherits a stale, already-complete
-        ratio from the previous one - which would otherwise make the new
-        stage-weighted ``percent()`` jump straight to its ceiling before
-        any of its own work has happened.
-        """
+        """Update the current job stage."""
         self._stage = stage
 
         self._best_effort_progress(

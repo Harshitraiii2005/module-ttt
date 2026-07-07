@@ -24,14 +24,16 @@ from app.services.package_text_tokenizer import TextTokenizer
 from app.services.package_symbol_generator import SymbolGenerator
 from talkingdb.clients.sqlite import sqlite_conn
 from talkingdb.logger.console import logger
-
+from app.core import config
 
 class IndexerService:
     def __init__(self, max_workers: int | None = None):
         self.gm = GraphModel.create(GraphModel.make_id(uuid4().hex), True)
         self.tokenizer = TextTokenizer()
         self.symbol_generator = SymbolGenerator()
-        self.max_workers = max_workers or (os.cpu_count() * 2)
+        self.max_workers = (
+            max_workers if max_workers is not None else config.INDEXER_MAX_WORKERS
+        )
 
     def graph_file_index(
         self,
@@ -40,11 +42,9 @@ class IndexerService:
     ) -> GraphModel:
         """Build the graph's tree-of-headings structure.
 
-        ``progress`` receives ``(done_units, total_units)`` updates as nodes
+        progress receives (done_units, total_units) updates as nodes
         are added, mirroring the callback contract used by
-        :meth:`index_document`. A cheap pre-pass counts total nodes so the
-        first callback can report a real denominator instead of an unknown
-        one.
+        :method:index_document.
         """
 
         def count_nodes(node: IndexItem) -> int:
