@@ -105,7 +105,11 @@ class JobContext:
         self._stage = stage
 
         self._best_effort_progress(
-            stage=stage, status_message=status_message, heartbeat=True,
+            stage=stage,
+            done_units=0,
+            total_units=0,
+            status_message=status_message,
+            heartbeat=True,
         )
         self._last_heartbeat_monotonic = time.monotonic()
 
