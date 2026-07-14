@@ -1,19 +1,26 @@
 """Lifecycle daemon for ingestion jobs.
 
 One background thread (started from the FastAPI lifespan) ticks every
-``DAEMON_INTERVAL_SECONDS`` and performs four idempotent passes:
+``DAEMON_INTERVAL_SECONDS`` and performs five idempotent passes:
 
   1. Orphan sweep   - jobs whose worker died (no heartbeat past
                       ``STALE_THRESHOLD_SECONDS``) are finalized as
                       ``FAILED(INTERNAL_ERROR)``.
-  2. Timeout sweep  - jobs that exceeded ``MAX_JOB_DURATION_SECONDS`` are
-                      finalized as ``FAILED(TIMEOUT)``. This is the backstop
-                      for cases where the worker-side elapsed check could not
-                      fire (e.g. wedged inside the parser).
-  3. Retention      - terminal jobs older than their per-state retention
+  2. Stuck sweep    - jobs whose worker is still alive (heartbeat fresh) but
+                      whose progress hasn't moved past
+                      ``STUCK_THRESHOLD_SECONDS`` are finalized as
+                      ``FAILED(STUCK)``. Catches a worker wedged inside a
+                      library or subprocess call, which the orphan sweep
+                      can't see because the background heartbeat timer keeps
+                      beating regardless.
+  3. Timeout sweep  - jobs that exceeded ``MAX_JOB_DURATION_SECONDS`` are
+                      finalized as ``FAILED(TIMEOUT)``. This is a high,
+                      untuned safety ceiling, not a health check - the
+                      backstop for cases where nothing above caught it.
+  4. Retention      - terminal jobs older than their per-state retention
                       window are hard-deleted (and any leftover temp file
                       is unlinked).
-  4. Temp-file GC   - spooled files that no row references are unlinked,
+  5. Temp-file GC   - spooled files that no row references are unlinked,
                       with a generous freshness grace so an in-flight submit
                       is never targeted.
 
@@ -75,6 +82,34 @@ def _sweep_orphans(now: datetime) -> None:
             error_code=JobErrorCode.INTERNAL_ERROR,
             error_message="orphaned job",
             status_message="Upload failed",
+        )
+
+
+def _sweep_stuck(now: datetime) -> None:
+    """Fail jobs that are alive (fresh heartbeat) but not progressing."""
+    stuck_before = _iso(now - timedelta(seconds=config.STUCK_THRESHOLD_SECONDS))
+    heartbeat_fresh_after = _iso(now - timedelta(seconds=config.STALE_THRESHOLD_SECONDS))
+    with sqlite_conn() as conn:
+        candidates = job_store.select_stuck_candidates(
+            conn, stuck_before, heartbeat_fresh_after
+        )
+    for job in candidates:
+        logger.warning(
+            f"[daemon] stuck: {job.job_id} state={job.state.value} "
+            f"stage={job.stage.value if job.stage else None}"
+        )
+
+        jobs.finalize_externally(
+            job.job_id,
+            JobState.FAILED,
+            graph_id=job.result_graph_id,
+            temp_path=job.temp_path,
+            error_code=JobErrorCode.STUCK,
+            error_message=(
+                f"no progress recorded for over "
+                f"{config.STUCK_THRESHOLD_SECONDS}s"
+            ),
+            status_message="Upload stalled",
         )
 
 
@@ -167,6 +202,7 @@ def tick() -> None:
     now = _now_utc()
 
     _sweep_orphans(now)
+    _sweep_stuck(now)
     _sweep_timeouts(now)
     _purge_retention(now)
     _gc_orphan_temp_files(now)

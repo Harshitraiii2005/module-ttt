@@ -46,13 +46,19 @@ HEARTBEAT_MIN_GAP_SECONDS = _int("TDB_JOB_HEARTBEAT_MIN_GAP_SECONDS", 2)
 
 # -------------------------------------------------------------------- timeouts
 # A job whose heartbeat is older than this is considered orphaned (its worker
-# died). Chosen to be far larger than the checkpoint interval so a healthy but
-# slow job is never killed by mistake.
+# died). Short, because a live worker's background timer beats far more
+# often than this.
 STALE_THRESHOLD_SECONDS = _int("TDB_JOB_STALE_THRESHOLD_SECONDS", 5 * 60)
 
-# Hard processing budget. Exceeding it transitions the job to FAILED(TIMEOUT),
-# checked worker-side at checkpoints with the lifecycle daemon as backstop.
-MAX_JOB_DURATION_SECONDS = _int("TDB_JOB_MAX_DURATION_SECONDS", 30 * 60)
+
+# A job whose heartbeat is still fresh but whose progress hasn't moved
+# STALE_THRESHOLD_SECONDS - this is the "wedged, not dead" case.
+STUCK_THRESHOLD_SECONDS = _int("TDB_JOB_STUCK_THRESHOLD_SECONDS", 30 * 60)
+
+# High upper safety limit only. Not tuned to any expected job duration - it 
+# exists purely to guarantee nothing runs forever, as a backstop behind the
+# heartbeat/progress checks above. 
+MAX_JOB_DURATION_SECONDS = _int("TDB_JOB_MAX_DURATION_SECONDS", 3 * 60 * 60)
 
 # A background timer refreshes the heartbeat at this cadence for as long as a
 # job is being processed, independent of worker-driven checkpoints.
