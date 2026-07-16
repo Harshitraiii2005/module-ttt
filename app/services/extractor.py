@@ -1,3 +1,5 @@
+import math
+
 from typing import Dict, List
 from collections import Counter
 
@@ -5,6 +7,12 @@ from app.services.package_text_tokenizer import TextTokenizer
 from app.services.package_symbol_generator import SymbolGenerator
 from talkingdb.helpers.graph_cache import graph_cache
 from app.core.thread_pool import executor
+from app.core import config
+
+ELEMENT_TYPES = config.RETRIEVAL_ELEMENT_TYPES
+GRAM_WEIGHTS = config.GRAM_WEIGHTS
+CONTEXT_WEIGHT = config.CONTEXT_MATCH_WEIGHT
+MAX_ROWS_PER_TABLE = config.MAX_ROWS_PER_TABLE
 
 
 class ExtractorService:
@@ -16,40 +24,75 @@ class ExtractorService:
         self.tokenizer = TextTokenizer()
         self.symbol_generator = SymbolGenerator()
 
+        self._element_counts: Dict[str, int] = {}
         self.executor = executor
 
     # ─────────────────────────────────────────────────────────────
 
     def extract(self, query: str):
+        """Score across all gram orders using gram-order and IDF weighting.
 
-        tokens = self.tokenizer.tokenize(query)
-        symbols = self.symbol_generator.generate(tokens)
+        Avoid returning on the first unigram match, which prevented higher-order
+        grams from contributing. Structured tokens allow numeric/table queries
+        without affecting paragraph ranking.
+        """
+        elements = Counter()
+        symbols = Counter()
 
-        for symbol_type in self.symbol_generator.grams():
+        token_sets = [
+            self.tokenizer.tokenize(query),
+            self.tokenizer.tokenize_structured(query),
+        ]
 
-            elements, matched_symbols = self._collect_paragraphs(
-                symbols.get(symbol_type, []),
-                symbol_type
-            )
+        for tokens in token_sets:
+            generated = self.symbol_generator.generate(tokens)
 
-            if elements:
-                return self.get_scores(matched_symbols, elements)
+            for gram in self.symbol_generator.grams():
+                query_symbols = generated.get(gram, [])
+                if not query_symbols:
+                    continue
 
-        return self.get_scores({}, {})
+                matched_elements, matched_symbols = self._collect_paragraphs(
+                    query_symbols, gram
+                )
+
+                weight = GRAM_WEIGHTS.get(gram, 1)
+
+                for element_id, score in matched_elements.items():
+                    elements[element_id] += score * weight
+
+                for symbol_id, score in matched_symbols.items():
+                    symbols[symbol_id] += score * weight
+
+        return self.get_scores(symbols, elements)
 
     # ─────────────────────────────────────────────────────────────
 
-    def _collect_paragraphs(
-        self,
-        query_symbols: List[str],
-        symbol_type: str,
-    ):
+    def _element_count(self, gm) -> int:
+        cached = self._element_counts.get(gm.graph_id)
+        if cached is not None:
+            return cached
+
+        total = max(
+            sum(
+                1
+                for _, attrs in gm.graph.nodes(data=True)
+                if attrs.get("type") in ELEMENT_TYPES
+            ),
+            1,
+        )
+
+        self._element_counts[gm.graph_id] = total
+        return total
+
+    def _collect_paragraphs(self, query_symbols: List[str], symbol_type: str):
 
         def process_graph(gm):
             local_symbols = Counter()
             local_elements = Counter()
 
             graph = gm.graph
+            total_elements = self._element_count(gm)
 
             for symbol in query_symbols:
 
@@ -59,27 +102,31 @@ class ExtractorService:
                 if graph.nodes[symbol].get("type") != symbol_type:
                     continue
 
-                for neighbor in graph.neighbors(symbol):
-                    node_type = graph.nodes[neighbor].get("type")
+                neighbours = [
+                    neighbor
+                    for neighbor in graph.neighbors(symbol)
+                    if graph.nodes[neighbor].get("type") in ELEMENT_TYPES
+                ]
 
-                    if node_type not in ("paragraph", "table"):
-                        continue
+                if not neighbours:
+                    continue
 
-                    element_id = f"{gm.graph_id}##{neighbor}"
-                    symbol_id = f"{gm.graph_id}##{symbol}"
+                idf = math.log(1 + total_elements / len(neighbours))
+                symbol_id = f"{gm.graph_id}##{symbol}"
 
-                    local_elements[element_id] += 1
-                    local_symbols[symbol_id] += 1
+                for neighbor in neighbours:
+                    edge_type = graph.edges[symbol, neighbor].get("type")
+                    weight = CONTEXT_WEIGHT if edge_type == "context" else 1.0
+
+                    local_elements[f"{gm.graph_id}##{neighbor}"] += weight * idf
+                    local_symbols[symbol_id] += weight * idf
 
             return local_elements, local_symbols
 
         elements_counter = Counter()
         symbols_counter = Counter()
 
-        futures = [
-            self.executor.submit(process_graph, gm)
-            for gm in self.gms
-        ]
+        futures = [self.executor.submit(process_graph, gm) for gm in self.gms]
 
         for future in futures:
             el_counter, sym_counter = future.result()
@@ -87,7 +134,31 @@ class ExtractorService:
             symbols_counter.update(sym_counter)
 
         return elements_counter, symbols_counter
+
     # ─────────────────────────────────────────────────────────────
+
+    def _cap_per_table(self, ranked_elements):
+        kept = []
+        per_table = Counter()
+
+        for full_id, score in ranked_elements:
+            graph_id, node_id = full_id.split("##", 1)
+            attrs = graph_cache.get(graph_id).graph.nodes[node_id]
+
+            if attrs.get("type") not in ("table_row", "table_cell"):
+                kept.append((full_id, score))
+                continue
+
+            table_id = (attrs.get("metadata") or {}).get("table_id")
+            key = f"{graph_id}##{table_id}"
+
+            if per_table[key] >= MAX_ROWS_PER_TABLE:
+                continue
+
+            per_table[key] += 1
+            kept.append((full_id, score))
+
+        return kept
 
     def get_scores(
         self,
@@ -99,7 +170,9 @@ class ExtractorService:
             return (-round(item[1], 6), item[0])
 
         ranked_symbols = sorted(symbol_scores.items(), key=score_key)
-        ranked_elements = sorted(element_scores.items(), key=score_key)
+        ranked_elements = self._cap_per_table(
+            sorted(element_scores.items(), key=score_key)
+        )
 
         if self.max_matches and self.max_matches > 0:
             ranked_symbols = ranked_symbols[: self.max_matches]
@@ -122,15 +195,20 @@ class ExtractorService:
 
         for full_id, score in ranked_elements:
             graph_id, element = full_id.split("##", 1)
-            graph = graph_cache.get(graph_id).graph
+            attrs = graph_cache.get(graph_id).graph.nodes[element]
+            metadata = attrs.get("metadata") or {}
 
             matched_elements.append({
                 "id": element,
                 "graph_id": graph_id,
-                "content": graph.nodes[element].get("text"),
-                "type": graph.nodes[element].get("type"),
-                "metadata": graph.nodes[element].get("metadata"),
+                "content": attrs.get("text"),
+                "type": attrs.get("type"),
+                "metadata": metadata,
                 "score": score,
+                "row_header": metadata.get("row_header"),
+                "col_header": metadata.get("col_header"),
+                "table_id": metadata.get("table_id"),
+                "page": metadata.get("page"),
             })
 
         return {
