@@ -28,6 +28,7 @@ package-content-elementizer = { git = "git+https://github.com/TalkingDB/package-
 uvloop = "^0.22.1"
 httptools = "^0.7.1"
 spacy = "^3.8.11"
+openai = "^1.60.0"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

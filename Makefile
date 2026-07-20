@@ -5,11 +5,25 @@ MODE ?= $(DEFAULT_MODE)
 
 .DEFAULT_GOAL := help
 
+# Written by infra-tdb-platform's configure_llm_provider.sh during DevPod
+# setup: "infisical" if the user chose Infisical for secrets, "dotenv" if
+# they chose a plain .env file. Defaults to "infisical" if the file is
+# missing (e.g. running outside DevPod / before setup has run).
+SECRETS_MODE := $(shell cat .secrets_mode 2>/dev/null || echo infisical)
+
 local:
+ifeq ($(SECRETS_MODE),dotenv)
+	set -a && source .env && set +a && poetry run python -m spacy download en_core_web_md && poetry run python -m debugpy --listen 0.0.0.0:5690 -m uvicorn app.main:app --host 0.0.0.0 --port 8090 --loop uvloop --http httptools --reload --reload-dir ./ --reload-dir ../base-tdb-models --reload-dir ../base-tdb-clients --reload-dir ../base-tdb-helpers --reload-dir ../package-content-elementizer
+else
 	infisical run --watch -- poetry run python -m spacy download en_core_web_md && poetry run python -m debugpy --listen 0.0.0.0:5690 -m uvicorn app.main:app --host 0.0.0.0 --port 8090 --loop uvloop --http httptools --reload --reload-dir ./ --reload-dir ../base-tdb-models --reload-dir ../base-tdb-clients --reload-dir ../base-tdb-helpers --reload-dir ../package-content-elementizer
+endif
 
 run:
+ifeq ($(SECRETS_MODE),dotenv)
+	set -a && source .env && set +a && poetry run python -m spacy download en_core_web_md && poetry run python -m uvicorn app.main:app --host 0.0.0.0 --port 8090 --workers 4 --loop uvloop --http httptools
+else
 	infisical run -- poetry run python -m spacy download en_core_web_md && poetry run python -m uvicorn app.main:app --host 0.0.0.0 --port 8090 --workers 4 --loop uvloop --http httptools
+endif
 
 sync:
 	@echo "🔄 Running sync_git_deps.py with mode: $(MODE)"
