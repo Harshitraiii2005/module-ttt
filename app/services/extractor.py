@@ -30,39 +30,37 @@ class ExtractorService:
     # ─────────────────────────────────────────────────────────────
 
     def extract(self, query: str):
-        """Score across all gram orders using gram-order and IDF weighting.
-
-        Avoid returning on the first unigram match, which prevented higher-order
-        grams from contributing. Structured tokens allow numeric/table queries
-        without affecting paragraph ranking.
+        """Score all gram orders using gram-order and IDF weighting.
+        Avoid early unigram matches so higher-order grams can contribute.
         """
         elements = Counter()
         symbols = Counter()
 
-        token_sets = [
-            self.tokenizer.tokenize(query),
-            self.tokenizer.tokenize_structured(query),
-        ]
+        prose = self.symbol_generator.generate(self.tokenizer.tokenize(query))
+        structured = self.symbol_generator.generate(
+            self.tokenizer.tokenize_structured(query)
+        )
 
-        for tokens in token_sets:
-            generated = self.symbol_generator.generate(tokens)
+        for gram in self.symbol_generator.grams():
+            prose_symbols = prose.get(gram, [])
+            seen = set(prose_symbols)
+            extra = [s for s in structured.get(gram, []) if s not in seen]
+            query_symbols = prose_symbols + extra
 
-            for gram in self.symbol_generator.grams():
-                query_symbols = generated.get(gram, [])
-                if not query_symbols:
-                    continue
+            if not query_symbols:
+                continue
 
-                matched_elements, matched_symbols = self._collect_paragraphs(
-                    query_symbols, gram
-                )
+            matched_elements, matched_symbols = self._collect_paragraphs(
+                query_symbols, gram
+            )
 
-                weight = GRAM_WEIGHTS.get(gram, 1)
+            weight = GRAM_WEIGHTS.get(gram, 1)
 
-                for element_id, score in matched_elements.items():
-                    elements[element_id] += score * weight
+            for element_id, score in matched_elements.items():
+                elements[element_id] += score * weight
 
-                for symbol_id, score in matched_symbols.items():
-                    symbols[symbol_id] += score * weight
+            for symbol_id, score in matched_symbols.items():
+                symbols[symbol_id] += score * weight
 
         return self.get_scores(symbols, elements)
 
@@ -111,7 +109,12 @@ class ExtractorService:
                 if not neighbours:
                     continue
 
-                idf = math.log(1 + total_elements / len(neighbours))
+                df = sum(
+                    1
+                    for neighbor in neighbours
+                    if graph.edges[symbol, neighbor].get("type") != "context"
+                )
+                idf = math.log(1 + total_elements / max(df, 1))
                 symbol_id = f"{gm.graph_id}##{symbol}"
 
                 for neighbor in neighbours:
