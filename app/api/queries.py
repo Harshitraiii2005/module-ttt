@@ -1,3 +1,4 @@
+import logging
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -7,6 +8,9 @@ from talkingdb.models.api.response import ErrorResponse
 
 from app.model.queries import QueryRequest, QueryResponse
 from app.services.extractor import ExtractorService
+from app.services.summarizer import summarize_elements
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["Queries"])
 
@@ -18,7 +22,8 @@ router = APIRouter(prefix="/v1", tags=["Queries"])
     summary="Query indexed documents",
     description=(
         "Submit a text query against one or more previously indexed document graphs. "
-        "Returns matched elements (paragraphs, tables) and symbols ranked by relevance."
+        "Returns matched elements (paragraphs, tables) and symbols ranked by relevance. "
+        "Set summarize=true to also get an LLM-generated summary of the matched elements."
     ),
     responses={
         401: {"model": ErrorResponse, "description": "Invalid or missing API key"},
@@ -64,10 +69,22 @@ async def query_documents(
             },
         )
 
-    processing_time_ms = int((time.time() - start) * 1000)
-
     elements = result.get("elements", [])
     symbols = result.get("symbols", [])
+
+    summary = None
+    if request.summarize:
+        try:
+            summary = summarize_elements(query=request.text, elements=elements)
+        except Exception as e:
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            print(e)
+            # Don't fail the whole query just because summarization failed -
+            # the caller still gets their matched elements back.
+            logger.warning("Summarization failed for query %r: %s", request.text, e)
+            summary = None
+
+    processing_time_ms = int((time.time() - start) * 1000)
 
     return QueryResponse(
         query=request.text,
@@ -76,4 +93,5 @@ async def query_documents(
         processing_time_ms=processing_time_ms,
         elements=elements,
         symbols=symbols,
+        summary=summary,
     )

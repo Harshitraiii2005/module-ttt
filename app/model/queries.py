@@ -21,6 +21,10 @@ class QueryRequest(BaseModel):
         le=100,
         description="Maximum number of results to return (1-100)",
     )
+    summarize: bool = Field(
+        default=False,
+        description="If true, use the configured LLM provider to summarize the matched elements",
+    )
 
 
 class MatchedNode(BaseModel):
@@ -39,3 +43,7 @@ class QueryResponse(BaseModel):
     processing_time_ms: int = Field(..., description="Time taken to process the query in milliseconds")
     elements: List[MatchedNode] = Field(..., description="Matched document elements (paragraphs, tables)")
     symbols: List[MatchedNode] = Field(..., description="Matched symbols from the query tokens")
+    summary: Optional[str] = Field(
+        None,
+        description="LLM-generated summary of the matched elements (only present if summarize=true was requested and succeeded)",
+    )

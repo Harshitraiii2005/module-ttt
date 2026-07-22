@@ -9,8 +9,9 @@ base_url, api_key, and model differ per provider.
 """
 
 import os
+import httpx
 
-from openai import OpenAI
+from openai import OpenAI, BadRequestError
 
 # --------------------------------------------------------------- providers
 # Model IDs are fixed per provider (not user-configurable), matching what
@@ -22,6 +23,7 @@ PROVIDER_MODELS = {
     "ollama": "qwen3:4b",
 }
 
+OPENAI_BASE_URL = "https://api.openai.com/v1"
 # Grok's OpenAI-compatible endpoint. OpenAI needs no base_url override -
 # the SDK already points at OpenAI by default.
 GROK_BASE_URL = "https://api.x.ai/v1"
@@ -41,10 +43,12 @@ def _build_client(provider: str) -> OpenAI:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise LLMNotConfiguredError("OPENAI_API_KEY is not set")
-        return OpenAI(api_key=api_key)
+        return OpenAI(api_key=api_key, base_url=OPENAI_BASE_URL)
 
     if provider == "grok":
         api_key = os.getenv("GROK_API_KEY")
+        print('#####################')
+        print(api_key)
         if not api_key:
             raise LLMNotConfiguredError("GROK_API_KEY is not set")
         return OpenAI(api_key=api_key, base_url=GROK_BASE_URL)
@@ -60,6 +64,8 @@ def _build_client(provider: str) -> OpenAI:
 def get_llm_response(prompt: str) -> str:
     """Send a prompt to the configured provider and return the text response."""
     provider = os.getenv("LLM_PROVIDER")
+    print("########################")
+    print(provider)
     if not provider:
         raise LLMNotConfiguredError("LLM_PROVIDER is not set")
 
