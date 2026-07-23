@@ -53,11 +53,11 @@ STALE_THRESHOLD_SECONDS = _int("TDB_JOB_STALE_THRESHOLD_SECONDS", 5 * 60)
 
 # A job whose heartbeat is still fresh but whose progress hasn't moved
 # STALE_THRESHOLD_SECONDS - this is the "wedged, not dead" case.
-STUCK_THRESHOLD_SECONDS = _int("TDB_JOB_STUCK_THRESHOLD_SECONDS", 30 * 60)
+STUCK_THRESHOLD_SECONDS = _int("TDB_JOB_STUCK_THRESHOLD_SECONDS", 75 * 60)
 
-# High upper safety limit only. Not tuned to any expected job duration - it 
+# High upper safety limit only. Not tuned to any expected job duration - it
 # exists purely to guarantee nothing runs forever, as a backstop behind the
-# heartbeat/progress checks above. 
+# heartbeat/progress checks above.
 MAX_JOB_DURATION_SECONDS = _int("TDB_JOB_MAX_DURATION_SECONDS", 3 * 60 * 60)
 
 # A background timer refreshes the heartbeat at this cadence for as long as a
