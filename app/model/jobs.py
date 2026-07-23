@@ -47,6 +47,14 @@ class JobStatusResponse(BaseModel):
         None,
         description="0-100 once the work size is known, Reset to 0 on terminal state",
     )
+    progress_at: Optional[str] = Field(
+        None,
+        description=(
+            "Timestamp of the last real progress signal-not a heartbeat. Compare against wall-clock time client-side "
+            "to notice a stalled job; use alongside `state`/`stage` rather "
+            "than as a standalone health check."
+        ),
+    )
     status_message: Optional[str] = Field(
         None, description="Short, human-readable status text for UI display"
     )
@@ -67,7 +75,7 @@ class JobStatusResponse(BaseModel):
         None,
         description=(
             "VALIDATION_ERROR | PARSE_ERROR | INDEX_ERROR | PERSIST_ERROR | "
-            "TIMEOUT | INTERNAL_ERROR. Set only on FAILED."
+            "TIMEOUT | STUCK | INTERNAL_ERROR. Set only on FAILED."
         ),
     )
     error_message: Optional[str] = None

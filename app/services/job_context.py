@@ -66,7 +66,7 @@ class JobContext:
         interval = config.BACKGROUND_HEARTBEAT_INTERVAL_SECONDS
         while not self._hb_stop.wait(interval):
             try:
-                self._best_effort_progress(stage=self._stage, heartbeat=True)
+                self._best_effort_progress(heartbeat=True)
                 self._last_heartbeat_monotonic = time.monotonic()
             except Exception:
                 logger.exception(
