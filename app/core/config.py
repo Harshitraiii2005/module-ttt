@@ -115,6 +115,6 @@ GRAM_WEIGHTS = {
 # is weaker evidence; without the discount one table's rows swamp the results.
 CONTEXT_MATCH_WEIGHT = _float("TDB_CONTEXT_MATCH_WEIGHT", 0.4)
 
-# Maximum row/cell units a single table may contribute to one result set, so one large
-# table cannot evict every paragraph. The table node still carries the full grid.
-MAX_ROWS_PER_TABLE = _int("TDB_MAX_ROWS_PER_TABLE", 2)
+# Prevents one large table from evicting paragraph results by limiting its row/cell 
+# contributions. The full table data remains available when requested.
+MAX_ROWS_PER_TABLE = _int("TDB_MAX_ROWS_PER_TABLE", 5)

@@ -12,12 +12,7 @@ from tqdm import tqdm
 
 from talkingdb.models.document.document import DocumentModel
 from talkingdb.models.document.elements.primitive.paragraph import ParagraphModel
-from talkingdb.models.document.elements.primitive.table import (
-    TableModel,
-    TableRowView,
-    HEADER_COLUMN,
-    HEADER_BOTH,
-)
+from talkingdb.models.document.elements.primitive.table import TableModel, TableRowView
 from talkingdb.models.document.indexes.index import (
     FileIndexModel,
     IndexItem,
@@ -175,9 +170,7 @@ class IndexerService:
         table_id = element.id
 
         context = document.get_table_context(element)
-
-        if element.header_orientation() in (HEADER_COLUMN, HEADER_BOTH):
-            context += list(element.column_headers().values())
+        context += list(element.column_headers().values())
 
         metadata = {
             "index": IndexType.TABLE,
