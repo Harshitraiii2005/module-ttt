@@ -14,6 +14,16 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+def _float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 # --------------------------------------------------------------- concurrency
 # Small bounded worker pool for CPU-heavy ingestion.
 MAX_WORKERS = _int("TDB_JOB_MAX_WORKERS", min(4, os.cpu_count() or 1))
@@ -89,3 +99,28 @@ SQLITE_BUSY_TIMEOUT_MS = _int("TDB_SQLITE_BUSY_TIMEOUT_MS", 5000)
 # Maximum number of curated suggested queries accepted per document at ingest
 # time. Curated demo documents carry a small, fixed set of examples.
 MAX_SUGGESTED_QUERIES = _int("TDB_MAX_SUGGESTED_QUERIES", 5)
+
+
+# ------------------------------------------------------------------- retrieval
+# Node types that count as a retrievable element. Table units are included so table
+# rows/cells are returned by /v1/queries; without them the extractor discards every
+# table node the indexer builds.
+RETRIEVAL_ELEMENT_TYPES = ("paragraph", "table", "table_row", "table_cell")
+
+# Score multiplier per n-gram order. A longer gram is harder to hit by accident, so it is
+# stronger evidence of relevance. This weights rarity of FORM; rarity of OCCURRENCE is the
+# IDF term applied alongside it in the extractor.
+GRAM_WEIGHTS = {
+    "unigram": _int("TDB_GRAM_WEIGHT_UNIGRAM", 1),
+    "bigram": _int("TDB_GRAM_WEIGHT_BIGRAM", 4),
+    "trigram": _int("TDB_GRAM_WEIGHT_TRIGRAM", 9),
+}
+
+# Weight of a symbol match on a table's INHERITED context (its title/heading/lead-in)
+# relative to a match on the element's own text (1.0). Below 1.0 because borrowed context
+# is weaker evidence; without the discount one table's rows swamp the results.
+CONTEXT_MATCH_WEIGHT = _float("TDB_CONTEXT_MATCH_WEIGHT", 0.4)
+
+# Prevents one large table from evicting paragraph results by limiting its row/cell 
+# contributions. The full table data remains available when requested.
+MAX_ROWS_PER_TABLE = _int("TDB_MAX_ROWS_PER_TABLE", 5)

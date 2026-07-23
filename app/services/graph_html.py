@@ -236,6 +236,7 @@ const rawLinks = data.links || data.edges || [];
 const EDGE_COLORS = {{
   "part_of":   "#2563eb",
   "contains":  "#16a34a",
+  "context":   "#65a30d",
   "key_value": "#d97706",
   "describes": "#9333ea",
   "unknown":   "#94a3b8"
@@ -247,7 +248,10 @@ const NODE_COLORS = {{
   "section@para":     "#60a5fa",
   "paragraph":        "#0ea5e9",
   "table":            "#f59e0b",
-  "header":           "#ea580c",
+  "table_row":        "#fb923c",
+  "table_cell":       "#fdba74",
+  "key":              "#c026d3",
+  "value":            "#a21caf",
   "unigram":          "#16a34a",
   "bigram":           "#22c55e",
   "trigram":          "#84cc16",
