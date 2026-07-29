@@ -18,6 +18,7 @@ from talkingdb.logger.console import logger
 from talkingdb.models.document.document import DocumentModel
 from talkingdb.models.document.elements.primitive.table import TableModel
 from talkingdb.models.document.indexes.index import FileIndexModel
+from talkingdb.helpers.file_graph import store as file_graph_store
 from talkingdb.helpers.job import store as job_store
 from talkingdb.models.job.error import JobErrorCode
 from talkingdb.models.job.stage import JobStage
@@ -126,6 +127,7 @@ def run_job(
 
         with sqlite_conn() as conn:
             job_store.set_result_graph_id(conn, job_id, graph_id)
+            file_graph_store.set_graph_id(conn, job_id, graph_id)  
 
         ctx.set_stage(
             JobStage.TREE_GENERATION,

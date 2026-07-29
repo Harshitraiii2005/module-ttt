@@ -1,4 +1,5 @@
 from typing import List, Optional
+import mimetypes
 
 from fastapi import (
     APIRouter,
@@ -10,10 +11,15 @@ from fastapi import (
     Query,
     UploadFile,
     status,
+    Request
 )
 
+from fastapi.responses import StreamingResponse
 from talkingdb.clients.sqlite import sqlite_conn
 from talkingdb.helpers import spool
+from talkingdb.helpers.release_channel import get_release_channel
+from talkingdb.helpers import file_store
+from talkingdb.helpers.file_graph import store as file_graph_store
 from talkingdb.helpers.auth import verify_api_key
 from talkingdb.helpers.graph import store as graph_store
 from talkingdb.helpers.graph_cache import graph_cache
@@ -61,6 +67,7 @@ router = APIRouter(prefix="/v1", tags=["Jobs"])
     },
 )
 async def submit_document_job(
+    request: Request,
     file: UploadFile = File(..., description="The document file to upload (.docx or .pdf)"),
     metadata: Optional[str] = Form(DEFAULT_METADATA, description="JSON metadata string"),
     session_id: Optional[str] = Form(
@@ -119,7 +126,9 @@ async def submit_document_job(
             max_size_mb=max_file_size_mb_for(ext),
             max_size_bytes=max_file_size_bytes_for(ext),
         )
-
+        rc = get_release_channel(request)
+        file_hash = file_store.compute_md5(temp_path)
+        file_store.upload_file(rc, file_hash, temp_path)
         metadata_json = metadata if metadata else DEFAULT_METADATA
 
         job = JobModel.new(
@@ -136,6 +145,13 @@ async def submit_document_job(
 
         with sqlite_conn() as conn:
             job_store.insert(conn, job)
+            file_graph_store.insert(
+                conn,
+                rc=rc,
+                file_hash=file_hash,
+                job_id=job.job_id,
+                filename=file.filename,
+            )
 
         jobs.enqueue_reserved(
             job_id=job.job_id,
@@ -219,3 +235,52 @@ async def remove_document(
         spool.discard(job.temp_path)
 
     return JobStatusResponse(**final.to_status_payload())
+
+
+@router.get(
+    "/documents/{graph_id}/file",
+    summary="Download the original uploaded file",
+    responses={
+        401: {"model": ErrorResponse, "description": "Invalid or missing API key"},
+        404: {"model": ErrorResponse, "description": "No file found for this graph"},
+    },
+)
+async def get_document_file(
+    graph_id: str = Path(..., description="Graph id returned from a completed job"),
+    api_key: str = Depends(verify_api_key),
+) -> StreamingResponse:
+    with sqlite_conn() as conn:
+        mapping = file_graph_store.get_by_graph_id(conn, graph_id)
+
+    if mapping is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error_code": "FILE_NOT_FOUND",
+                "message": f"No file found for graph_id: {graph_id}",
+            },
+        )
+
+    stream = file_store.get_file_stream(mapping.rc, mapping.file_hash)
+    if stream is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error_code": "FILE_NOT_FOUND", "message": "File missing from storage"},
+        )
+
+    filename = mapping.filename or mapping.file_hash
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+    def _iter_and_close():
+        try:
+            for chunk in stream.stream(32 * 1024):
+                yield chunk
+        finally:
+            stream.close()
+            stream.release_conn()
+
+    return StreamingResponse(
+        _iter_and_close(),
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
