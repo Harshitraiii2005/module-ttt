@@ -126,11 +126,8 @@ async def submit_document_job(
             max_size_mb=max_file_size_mb_for(ext),
             max_size_bytes=max_file_size_bytes_for(ext),
         )
-        rc = get_release_channel(request)
-        file_hash = file_store.compute_md5(temp_path)
-        file_store.upload_file(rc, file_hash, temp_path)
+        
         metadata_json = metadata if metadata else DEFAULT_METADATA
-
         job = JobModel.new(
             job_type=JobType.DOCUMENT,
             filename=file.filename,
@@ -142,12 +139,16 @@ async def submit_document_job(
         )
         job.file_size_bytes = size_bytes
         job.temp_path = temp_path
+        
+        channel = get_release_channel(request)
+        file_hash = file_store.compute_md5(temp_path)
+        file_store.upload_file(channel, file_hash, temp_path)
 
         with sqlite_conn() as conn:
             job_store.insert(conn, job)
             file_graph_store.insert(
                 conn,
-                rc=rc,
+                channel=channel,
                 file_hash=file_hash,
                 job_id=job.job_id,
                 filename=file.filename,
@@ -211,6 +212,8 @@ async def remove_document(
     deleted = False
     graph_id: Optional[str] = None
 
+    file_to_delete: Optional[tuple[str, str]] = None
+
     with sqlite_conn() as conn:
         job = job_store.get(conn, job_id)
         if job is None:
@@ -225,14 +228,26 @@ async def remove_document(
 
         if final.is_terminal():
             graph_id = final.result_graph_id
-            graph_store.delete(conn, graph_id)
+            if graph_id:
+                graph_store.delete(conn, graph_id)
             job_store.delete(conn, job_id)
+
+            mapping = file_graph_store.get_by_job_id(conn, job_id)
+            if mapping is not None:
+                file_graph_store.delete_by_job_id(conn, job_id)
+                remaining = file_graph_store.get_by_channel_hash(
+                    conn, mapping.channel, mapping.file_hash)
+                if not remaining:
+                    file_to_delete = (mapping.channel, mapping.file_hash)
+
             deleted = True
 
     if deleted:
         if graph_id:
             graph_cache.invalidate(graph_id)
         spool.discard(job.temp_path)
+        if file_to_delete is not None:
+            file_store.delete_file(*file_to_delete)
 
     return JobStatusResponse(**final.to_status_payload())
 
@@ -261,7 +276,7 @@ async def get_document_file(
             },
         )
 
-    stream = file_store.get_file_stream(mapping.rc, mapping.file_hash)
+    stream = file_store.get_file_stream(mapping.channel, mapping.file_hash)
     if stream is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
