@@ -1,4 +1,5 @@
 from typing import List, Optional
+from urllib.parse import quote
 import mimetypes
 
 from fastapi import (
@@ -13,8 +14,10 @@ from fastapi import (
     status,
     Request
 )
+from fastapi.concurrency import run_in_threadpool
 
 from fastapi.responses import StreamingResponse
+from minio.error import S3Error
 from talkingdb.clients.sqlite import sqlite_conn
 from talkingdb.helpers import spool
 from talkingdb.helpers.release_channel import get_release_channel
@@ -63,6 +66,7 @@ router = APIRouter(prefix="/v1", tags=["Jobs"])
         413: {"model": ErrorResponse, "description": "File exceeds maximum allowed size"},
         415: {"model": ErrorResponse, "description": "Unsupported file type"},
         429: {"model": ErrorResponse, "description": "Worker queue is full"},
+        502: {"model": ErrorResponse, "description": "Failed to store file"},
         503: {"model": ErrorResponse, "description": "Spool storage exhausted"},
     },
 )
@@ -126,7 +130,7 @@ async def submit_document_job(
             max_size_mb=max_file_size_mb_for(ext),
             max_size_bytes=max_file_size_bytes_for(ext),
         )
-        
+
         metadata_json = metadata if metadata else DEFAULT_METADATA
         job = JobModel.new(
             job_type=JobType.DOCUMENT,
@@ -139,11 +143,14 @@ async def submit_document_job(
         )
         job.file_size_bytes = size_bytes
         job.temp_path = temp_path
-        
-        channel = get_release_channel(request)
-        file_hash = file_store.compute_md5(temp_path)
-        file_store.upload_file(channel, file_hash, temp_path)
 
+        channel = get_release_channel(request)
+        file_hash = await run_in_threadpool(file_store.compute_sha256, temp_path)
+
+        # Mapping row is created BEFORE the MinIO upload so that, even if
+        # another request's dedup-delete cleanup runs concurrently for the
+        # same (channel, hash), it sees this row and won't remove the object
+        # out from under us. See TAL-797 race-condition discussion.
         with sqlite_conn() as conn:
             job_store.insert(conn, job)
             file_graph_store.insert(
@@ -154,12 +161,45 @@ async def submit_document_job(
                 filename=file.filename,
             )
 
-        jobs.enqueue_reserved(
-            job_id=job.job_id,
-            temp_path=temp_path,
-            filename=file.filename or f"upload.{ext}",
-            metadata_json=metadata_json,
-        )
+        try:
+            # upload_file() does a blocking network call to MinIO.
+            await run_in_threadpool(file_store.upload_file, channel, file_hash, temp_path)
+        except Exception:
+            # Upload genuinely failed (not a dedup race) - roll back the
+            # job/mapping rows we just created so nothing points at a file
+            # that was never actually stored.
+            with sqlite_conn() as conn:
+                job_store.delete(conn, job.job_id)
+                file_graph_store.delete_by_job_id(conn, job.job_id)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "error_code": "STORAGE_UPLOAD_FAILED",
+                    "message": "Failed to store file",
+                },
+            )
+
+        try:
+            jobs.enqueue_reserved(
+                job_id=job.job_id,
+                temp_path=temp_path,
+                filename=file.filename or f"upload.{ext}",
+                metadata_json=metadata_json,
+            )
+        except Exception:
+            # The blob and mapping row were already created above - if we
+            # only clean up the spool file here (via the outer `finally`),
+            # they're orphaned: the mapping keeps pointing at a job that no
+            # longer exists, and the blob is never reference-counted down.
+            # Remove all three so nothing is left behind.
+            with sqlite_conn() as conn:
+                job_store.delete(conn, job.job_id)
+                file_graph_store.delete_by_job_id(conn, job.job_id)
+                remaining = file_graph_store.get_by_channel_hash(conn, channel, file_hash)
+            if not remaining:
+                await run_in_threadpool(file_store.delete_file, channel, file_hash)
+            raise
+
         enqueued = True
 
         return JobAcceptedResponse(
@@ -276,7 +316,17 @@ async def get_document_file(
             },
         )
 
-    stream = file_store.get_file_stream(mapping.channel, mapping.file_hash)
+    # Validate the object exists (and grab its size) before opening a stream.
+    stat = await run_in_threadpool(file_store.stat_file, mapping.channel, mapping.file_hash)
+    if stat is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error_code": "FILE_NOT_FOUND", "message": "File missing from storage"},
+        )
+
+    stream = await run_in_threadpool(
+        file_store.get_file_stream, mapping.channel, mapping.file_hash
+    )
     if stream is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -285,6 +335,14 @@ async def get_document_file(
 
     filename = mapping.filename or mapping.file_hash
     content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+    # RFC 6266: ASCII fallback in `filename`, UTF-8 percent-encoded form in
+    # `filename*`. Avoids a 500 on non-ASCII names and malformed headers on
+    # names containing quotes.
+    ascii_fallback = filename.encode("ascii", "replace").decode("ascii").replace('"', "_")
+    encoded_filename = quote(filename, safe="")
+
+    disposition_type = "inline" if content_type == "application/pdf" else "attachment"
 
     def _iter_and_close():
         try:
@@ -297,5 +355,10 @@ async def get_document_file(
     return StreamingResponse(
         _iter_and_close(),
         media_type=content_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": (
+                f'{disposition_type}; filename="{ascii_fallback}"; '
+                f"filename*=UTF-8''{encoded_filename}"
+            ),
+            "Content-Length": str(stat.size),
+        },
     )
