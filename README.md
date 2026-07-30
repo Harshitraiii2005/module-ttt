@@ -1,6 +1,23 @@
-# Text-To-Tree (TTT)
+<h1 align="center">Text-To-Tree (TTT)</h1>
 
-### Vectorless, Search & Retrieval — at 1/10th token consumption
+<p align="center">
+  <img src="https://img.shields.io/github/stars/TalkingDB/module-ttt?style=flat-square&label=STARS&color=555" />
+  <img src="https://img.shields.io/github/forks/TalkingDB/module-ttt?style=flat-square&label=FORKS&color=555" />
+  <img src="https://img.shields.io/github/issues/TalkingDB/module-ttt?style=flat-square&label=ISSUES&color=dfb317" />
+  <img src="https://img.shields.io/github/issues-pr/TalkingDB/module-ttt?style=flat-square&label=PULL%20REQUESTS&color=4c1" />
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/github/last-commit/TalkingDB/module-ttt?style=flat-square&label=last%20commit&color=4c1" />
+  <img src="https://img.shields.io/github/contributors/TalkingDB/module-ttt?style=flat-square&label=contributors&color=e05d44" />
+  <img src="https://img.shields.io/github/actions/workflow/status/TalkingDB/module-ttt/ci.yml?style=flat-square&label=CI&logo=github&color=4c1" />
+  <img src="https://img.shields.io/codecov/c/github/TalkingDB/module-ttt?style=flat-square&label=codecov&logo=codecov&color=4c1" />
+  <img src="https://img.shields.io/github/license/TalkingDB/module-ttt?style=flat-square&label=License&color=4c1" />
+</p>
+
+---
+
+### Vectorless, Search & Retrieval - at 1/10th token consumption
 
 TTT navigates your document structure and retrieves only the sections needed to answer your query before invoking your LLM.
 
@@ -8,7 +25,7 @@ Every answer is grounded in the source document, using up to 90% fewer LLM token
 
 ---
 
-## 📊 See the Difference
+## See the Difference
 
 TTT was benchmarked against OpenAI's managed File Search implementation using GPT-4o across representative enterprise document types.
 
@@ -22,13 +39,13 @@ TTT was benchmarked against OpenAI's managed File Search implementation using GP
 
 ---
 
-## 🚀 See It in Action
+## See It in Action
 
 **Experience a [document assistant chatbot](http://chat.talkingdb.io) powered with ❤️ using TTT.**
 
 Upload your own document or explore one of our samples and ask questions naturally. Every answer is backed by our structure-aware retrieval engine that navigates your document before the LLM generates a response.
 
-**👉 [chat.talkingdb.io](https://chat.talkingdb.io/)**
+** [chat.talkingdb.io](https://chat.talkingdb.io/)**
 
 ---
 
@@ -44,7 +61,7 @@ The result is a **vectorless, structure-aware retrieval engine** that preserves 
 
 ---
 
-## ⚡ Getting Started
+## Getting Started
 
 Ready to build with TTT? Get the service running locally in minutes, explore the APIs, and submit your first document.
 
@@ -61,11 +78,11 @@ Once the container is running:
 - **API Base URL:** `http://localhost:8090`
 - **Swagger Documentation:** `http://localhost:8090/docs`
 
-**👉 [Try TalkingDB on Docker Hub](https://hub.docker.com/r/talkingdb/ttt)** — Installation, Docker setup, Swagger UI, your first document upload, and first query.
+** [Try TalkingDB on Docker Hub](https://hub.docker.com/r/talkingdb/ttt)** — Installation, Docker setup, Swagger UI, your first document upload, and first query.
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 Looking for more?
 
@@ -76,7 +93,7 @@ Looking for more?
 
 ---
 
-## 🔗 Linked Repositories
+## Linked Repositories
 
 TTT is one service inside the broader TalkingDB platform. It depends on, and works alongside, these repositories:
 
@@ -90,7 +107,7 @@ TTT is one service inside the broader TalkingDB platform. It depends on, and wor
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Interested in contributing to TTT?
 
@@ -98,11 +115,21 @@ See the **[contributor guide](https://docs.talkingdb.io/doc/guides-ofg1QILxjP)**
 
 ---
 
-## 📬 Get in Touch
+## Get in Touch
 
 Looking to bring TTT into your own stack and cut down what you're spending on document search and retrieval? Talk to us. We'll help you figure out what that could look like for your team.
 
-[![talkingdb.io](https://img.shields.io/badge/talkingdb.io-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](https://talkingdb.io/)
-[![Try TalkingDB](https://img.shields.io/badge/Try%20TalkingDB-00C7B7?style=for-the-badge&logo=databricks&logoColor=white)](https://talkingdb.io/)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/company/talkingdb/about/)
-[![Contact Us](https://img.shields.io/badge/Contact%20Us-4285F4?style=for-the-badge&logo=gmail&logoColor=white)](mailto:hello@talkingdb.io)
+<p align="center">
+  <a href="https://talkingdb.io/">
+    <img src="https://img.shields.io/badge/talkingdb.io-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="TalkingDB Website">
+  </a>
+  <a href="https://talkingdb.io/">
+    <img src="https://img.shields.io/badge/Try%20TalkingDB-00C7B7?style=for-the-badge&logo=databricks&logoColor=white" alt="Try TalkingDB">
+  </a>
+  <a href="https://www.linkedin.com/company/talkingdb/about/">
+    <img src="https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn">
+  </a>
+  <a href="mailto:hello@talkingdb.io">
+    <img src="https://img.shields.io/badge/Contact%20Us-4285F4?style=for-the-badge&logo=gmail&logoColor=white" alt="Contact Us">
+  </a>
+</p>
