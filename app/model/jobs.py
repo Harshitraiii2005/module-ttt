@@ -32,6 +32,13 @@ class JobStatusResponse(BaseModel):
     session_id: Optional[str] = Field(
         None, description="Session this document is linked to"
     )
+    project_id: Optional[str] = Field(
+        None,
+        description=(
+            "Project this document is filed under. Null means it sits at the "
+            "owner's root level, outside any project."
+        ),
+    )
     state: str = Field(
         ...,
         description="QUEUED | ONGOING | CANCELLING | CANCELLED | COMPLETED | FAILED",
