@@ -1,5 +1,7 @@
 <h1 align="center">Text-To-Tree (TTT)</h1>
-
+<p align="center">
+  <img src="assets/banner-img.png" alt="Module-TTT Banner" width="100%">
+</p>
 <p align="center">
   <img src="https://img.shields.io/github/stars/TalkingDB/module-ttt?style=flat-square&label=STARS&color=555" />
   <img src="https://img.shields.io/github/forks/TalkingDB/module-ttt?style=flat-square&label=FORKS&color=555" />
@@ -10,14 +12,16 @@
 <p align="center">
   <img src="https://img.shields.io/github/last-commit/TalkingDB/module-ttt?style=flat-square&label=last%20commit&color=4c1" />
   <img src="https://img.shields.io/github/contributors/TalkingDB/module-ttt?style=flat-square&label=contributors&color=e05d44" />
-  <img src="https://img.shields.io/github/actions/workflow/status/TalkingDB/module-ttt/ci.yml?style=flat-square&label=CI&logo=github&color=4c1" />
-  <img src="https://img.shields.io/codecov/c/github/TalkingDB/module-ttt?style=flat-square&label=codecov&logo=codecov&color=4c1" />
+  <img src="https://img.shields.io/badge/language-Python-3776AB?style=flat-square&logo=python&logoColor=white" />
   <img src="https://img.shields.io/github/license/TalkingDB/module-ttt?style=flat-square&label=License&color=4c1" />
+  <img src="https://img.shields.io/badge/release-v2.5.3-4c1?style=flat-square" />
+    <img src="https://img.shields.io/badge/OS-linux%2C%20windows%2C%20macOS-2496ED?style=flat-square" />
+  <img src="https://img.shields.io/badge/free%20for%20non--commercial%20use-4c1?style=flat-square" />
+
 </p>
 
 ---
-
-### Vectorless, Search & Retrieval - at 1/10th token consumption
+<h3 align="center">Vectorless, Search & Retrieval - at 1/10th token consumption</h3>
 
 TTT navigates your document structure and retrieves only the sections needed to answer your query before invoking your LLM.
 
@@ -37,21 +41,31 @@ TTT was benchmarked against OpenAI's managed File Search implementation using GP
 | [WHO Health Equity Report](https://drive.google.com/file/d/1gDjypJsGdSrxV5lmBcz3e7Q5GLVEyOtm/view?usp=sharing) | 19 | 15.39k | 1,140 | 270.73k | **92.60%** |
 | **Total** | **93** | **16.36k** | **1,388** | **1,392k** | **91.52%** |
 
+<p align="center">
+  <img src="assets/stats-image.png" alt="Module-TTT Banner" width="100%">
+</p>
+
 ---
 
 ## See It in Action
 
 **Experience a [document assistant chatbot](http://chat.talkingdb.io) powered with ❤️ using TTT.**
 
+<p align="center">
+  <img src="assets/demo-working.gif" alt="Module-TTT Banner" width="100%">
+</p>
+
 Upload your own document or explore one of our samples and ask questions naturally. Every answer is backed by our structure-aware retrieval engine that navigates your document before the LLM generates a response.
 
-** [chat.talkingdb.io](https://chat.talkingdb.io/)**
+[chat.talkingdb.io](https://chat.talkingdb.io/)
 
 ---
 
 ## How TTT Thinks
 
-![How TTT Thinks](https://github.com/vamsi-a-hash/module-ttt/blob/TAL-966-docs/update-readme/assets/image1.png?raw=true)
+<p align="center">
+  <img src="assets/image1.png" alt="Module-TTT Banner" width="100%">
+</p>
 
 Conventional chunking strategies can split tables, lists, headings, and other related content across multiple chunks, losing document structure. During retrieval, this often returns multiple partially relevant chunks — increasing irrelevant context and LLM token consumption.
 
@@ -78,7 +92,7 @@ Once the container is running:
 - **API Base URL:** `http://localhost:8090`
 - **Swagger Documentation:** `http://localhost:8090/docs`
 
-** [Try TalkingDB on Docker Hub](https://hub.docker.com/r/talkingdb/ttt)** — Installation, Docker setup, Swagger UI, your first document upload, and first query.
+[Try TalkingDB on Docker Hub](https://hub.docker.com/r/talkingdb/ttt) — Installation, Docker setup, Swagger UI, your first document upload, and first query.
 
 ---
 
