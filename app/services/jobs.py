@@ -18,12 +18,14 @@ from talkingdb.logger.console import logger
 from talkingdb.models.document.document import DocumentModel
 from talkingdb.models.document.elements.primitive.table import TableModel
 from talkingdb.models.document.indexes.index import FileIndexModel
+from talkingdb.helpers.file_graph import store as file_graph_store
 from talkingdb.helpers.job import store as job_store
 from talkingdb.models.job.error import JobErrorCode
 from talkingdb.models.job.stage import JobStage
 from talkingdb.models.job.state import JobState
 from talkingdb.models.metadata.metadata import Metadata
 from talkingdb_ce.client import CEClient
+from talkingdb.helpers import file_store
 
 from app.core import config
 from app.services.job_context import JobCancelled, JobContext, JobTimeout
@@ -126,6 +128,7 @@ def run_job(
 
         with sqlite_conn() as conn:
             job_store.set_result_graph_id(conn, job_id, graph_id)
+            file_graph_store.set_graph_id(conn, job_id, graph_id)  
 
         ctx.set_stage(
             JobStage.TREE_GENERATION,
@@ -295,6 +298,19 @@ def _finalize(
         rollback_start = time.monotonic()
         rollback_graph(graph_id)
         rollback_ms = int((time.monotonic() - rollback_start) * 1000)
+
+        mapping = None
+        remaining = []
+        with sqlite_conn() as conn:
+            mapping = file_graph_store.get_by_job_id(conn, job_id)
+            if mapping is not None:
+                file_graph_store.delete_by_job_id(conn, job_id)
+                remaining = file_graph_store.get_by_channel_hash(
+                    conn, mapping.channel, mapping.file_hash
+                )
+
+        if mapping is not None and not remaining:
+            file_store.delete_file(mapping.channel, mapping.file_hash)
 
     spool.discard(temp_path)
 
