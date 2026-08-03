@@ -81,6 +81,8 @@ async def create_project(
                 owner_email=owner_email,
             )
         except sqlite3.IntegrityError as exc:
+            if exc.sqlite_errorcode != sqlite3.SQLITE_CONSTRAINT_UNIQUE:
+                raise
             # Relies on the unique index rather than a pre-check, so two
             # concurrent creates cannot both see "available" and both insert.
             raise HTTPException(
