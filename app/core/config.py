@@ -101,6 +101,17 @@ SQLITE_BUSY_TIMEOUT_MS = _int("TDB_SQLITE_BUSY_TIMEOUT_MS", 5000)
 MAX_SUGGESTED_QUERIES = _int("TDB_MAX_SUGGESTED_QUERIES", 5)
 
 
+# -------------------------------------------------------------------- projects
+# Project name length bound. Names are user-supplied and shown in the Manage
+# Projects panel; the cap exists to keep a single row renderable, not for storage.
+MAX_PROJECT_NAME_LENGTH = _int("TDB_MAX_PROJECT_NAME_LENGTH", 120)
+
+# Per-project document cap in the nested project tree. Bounds the response the
+# way every other store reader is bounded; document_count still reports the true
+# total, so a UI can render "120 documents" while listing the newest N.
+TREE_DOCS_PER_PROJECT = _int("TDB_TREE_DOCS_PER_PROJECT", 50)
+
+
 # ------------------------------------------------------------------- retrieval
 # Node types that count as a retrievable element. Table units are included so table
 # rows/cells are returned by /v1/queries; without them the extractor discards every

@@ -4,6 +4,7 @@ from talkingdb.models.auth.user import UserModel
 from talkingdb.models.auth.api_key import APIKeyModel
 from talkingdb.helpers.job import store as job_store
 from talkingdb.helpers.namespace import store as namespace_store
+from talkingdb.helpers.project import store as project_store
 from talkingdb.helpers.file_graph import store as file_graph_store
 from talkingdb.clients.sqlite import sqlite_conn
 from talkingdb.clients.minio import ensure_bucket
@@ -18,6 +19,7 @@ def init_database():
         APIKeyModel.init_db(conn)
         job_store.init_db(conn)
         namespace_store.init_db(conn)
+        project_store.init_db(conn)
         namespace_store.ensure_reserved(conn)
         file_graph_store.init_db(conn)
     ensure_bucket()

@@ -41,6 +41,7 @@ from app.api.validators import (
     clean_optional_text,
     parse_suggested_queries,
     validate_namespace,
+    validate_project_owned,
 )
 from app.core import config as job_config
 from app.model.jobs import JobAcceptedResponse, JobStatusResponse
@@ -96,15 +97,26 @@ async def submit_document_job(
             "Curated example queries for this document; add up to 5."
         ),
     ),
-    api_key: str = Depends(verify_api_key),
+    project_id: Optional[str] = Form(
+        None,
+        description=(
+            "File this document under one of the caller's projects. Omit to "
+            "leave it at the caller's root level, outside any project."
+        ),
+    ),
+    owner_email: str = Depends(verify_api_key),
 ) -> JobAcceptedResponse:
     """Submit a document ingestion job for background processing."""
     ext = validate_file_type(file)
 
     namespace = validate_namespace(namespace)
+    project_id = clean_optional_text(project_id)
     parsed_queries = parse_suggested_queries(suggested_queries)
     title = clean_optional_text(title)
     description = clean_optional_text(description)
+
+    if project_id is not None:
+        validate_project_owned(project_id, owner_email)
 
     spool.assert_spool_capacity()
 
@@ -137,6 +149,8 @@ async def submit_document_job(
             filename=file.filename,
             session_id=session_id,
             namespace=namespace,
+            owner_email=owner_email,
+            project_id=project_id,
             title=title,
             description=description,
             suggested_queries=parsed_queries,
