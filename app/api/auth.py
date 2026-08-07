@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, status
-from talkingdb.clients.sqlite import sqlite_conn
+from talkingdb.clients.sqlite import sqlite_conn, GRAPH_DB
 from talkingdb.helpers.auth import hash_password, verify_password
 from talkingdb.helpers.jwt import create_access_token, get_current_user
 from talkingdb.models.auth.auth import SignupRequest, SignupResponse, LoginRequest, LoginResponse
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 )
 async def signup(payload: SignupRequest):
     try:
-        with sqlite_conn() as conn:
+        with sqlite_conn(GRAPH_DB) as conn:
             UserModel.create(
                 conn=conn,
                 email=payload.email,
@@ -40,7 +40,7 @@ async def signup(payload: SignupRequest):
     response_model=LoginResponse,
 )
 async def login(payload: LoginRequest):
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         user = UserModel.find_by_email(
             conn,
             payload.email,
@@ -74,7 +74,7 @@ async def login(payload: LoginRequest):
 @router.post("/api-keys")
 def create_api_key(user_email: str = Depends(get_current_user)):
 
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         api_key_obj = APIKeyModel.create(
             conn=conn,
             user_email=user_email,

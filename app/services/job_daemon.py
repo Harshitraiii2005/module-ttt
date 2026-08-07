@@ -66,7 +66,7 @@ def _iso(dt: datetime) -> str:
 def _sweep_orphans(now: datetime) -> None:
     """Fail jobs whose heartbeat became stale."""
     stale_before = _iso(now - timedelta(seconds=config.STALE_THRESHOLD_SECONDS))
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         candidates = job_store.select_orphan_candidates(conn, stale_before)
     for job in candidates:
         logger.warning(
@@ -89,7 +89,7 @@ def _sweep_stuck(now: datetime) -> None:
     """Fail jobs that are alive (fresh heartbeat) but not progressing."""
     stuck_before = _iso(now - timedelta(seconds=config.STUCK_THRESHOLD_SECONDS))
     heartbeat_fresh_after = _iso(now - timedelta(seconds=config.STALE_THRESHOLD_SECONDS))
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         candidates = job_store.select_stuck_candidates(
             conn, stuck_before, heartbeat_fresh_after
         )
@@ -116,7 +116,7 @@ def _sweep_stuck(now: datetime) -> None:
 def _sweep_timeouts(now: datetime) -> None:
     """Fail jobs that exceeded the timeout."""
     deadline = _iso(now - timedelta(seconds=config.MAX_JOB_DURATION_SECONDS))
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         candidates = job_store.select_timeout_candidates(conn, deadline)
     for job in candidates:
         logger.warning(
@@ -152,7 +152,7 @@ def _purge_retention(now: datetime) -> None:
         now - timedelta(seconds=config.RETENTION_CANCELLED_SECONDS)
     )
 
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         expired = job_store.select_retention_expired(
             conn,
             completed_before_iso=completed_before,
@@ -163,7 +163,7 @@ def _purge_retention(now: datetime) -> None:
     for job in expired:
         spool.discard(job.temp_path)
 
-        with sqlite_conn() as conn:
+        with sqlite_conn(GRAPH_DB) as conn:
             job_store.delete(conn, job.job_id)
 
 
@@ -172,7 +172,7 @@ def _gc_orphan_temp_files(now: datetime) -> None:
     if not os.path.isdir(spool.SPOOL_DIR):
         return
 
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         referenced = job_store.select_referenced_temp_paths(conn)
 
     grace = now - timedelta(seconds=_TEMP_FILE_GRACE_SECONDS)

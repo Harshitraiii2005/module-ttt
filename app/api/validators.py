@@ -52,7 +52,7 @@ def validate_project_name(name: Optional[str]) -> str:
 
 
 def validate_project_owned(project_id: str, owner_email: str) -> Dict[str, Any]:
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         project = project_store.get_for_owner(conn, project_id, owner_email)
     if project is None:
         raise HTTPException(
@@ -69,7 +69,7 @@ def validate_namespace(namespace: Optional[str]) -> Optional[str]:
     namespace = clean_optional_text(namespace)
     if namespace is None:
         return None
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         if namespace_store.get_namespace(conn, namespace) is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

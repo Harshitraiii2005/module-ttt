@@ -81,7 +81,7 @@ class IndexerService:
         for top_node in file_index.nodes:
             walk(top_node, file_index.id)
 
-        with sqlite_conn() as conn:
+        with sqlite_conn(GRAPH_DB) as conn:
             self.gm.save(conn)
 
         return self.gm
@@ -386,7 +386,7 @@ class IndexerService:
             f"{round(time.time() - insert_start, 2)}s"
         )
 
-        with sqlite_conn() as conn:
+        with sqlite_conn(GRAPH_DB) as conn:
             self.gm.save(conn)
 
         logger.info(f"Indexing completed in {round(time.time() - start_time, 2)}s")

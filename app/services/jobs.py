@@ -126,7 +126,7 @@ def run_job(
         indexer = IndexerService()
         graph_id = indexer.gm.graph_id
 
-        with sqlite_conn() as conn:
+        with sqlite_conn(GRAPH_DB) as conn:
             job_store.set_result_graph_id(conn, job_id, graph_id)
             file_graph_store.set_graph_id(conn, job_id, graph_id)  
 
@@ -216,7 +216,7 @@ def run_job(
 
 # ------------------------------------------------------------- pipeline steps
 def _transition_to_ongoing(job_id: str) -> bool:
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         return job_store.mark_ongoing(conn, job_id, _now_iso())
 
 
@@ -274,7 +274,7 @@ def _finalize(
     status_message: Optional[str] = None,
 ) -> None:
     """Apply the terminal job transition, then run cleanup if we won it."""
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         won = job_store.finalize(
             conn,
             job_id,
@@ -301,7 +301,7 @@ def _finalize(
 
         mapping = None
         remaining = []
-        with sqlite_conn() as conn:
+        with sqlite_conn(GRAPH_DB) as conn:
             mapping = file_graph_store.get_by_job_id(conn, job_id)
             if mapping is not None:
                 file_graph_store.delete_by_job_id(conn, job_id)
@@ -314,7 +314,7 @@ def _finalize(
 
     spool.discard(temp_path)
 
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         terminal_job = job_store.get(conn, job_id)
     if terminal_job is not None:
         emit_lifecycle(terminal_job, rollback_ms=rollback_ms)
