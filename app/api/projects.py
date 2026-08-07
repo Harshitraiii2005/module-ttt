@@ -71,7 +71,7 @@ async def create_project(
     name = validate_project_name(payload.name)
     logo, logo_media_type = validate_logo(payload.logo)
 
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         try:
             project = project_store.create(
                 conn,
@@ -114,7 +114,7 @@ async def list_projects(
     offset: int = Query(0, ge=0, description="Number of projects to skip"),
     owner_email: str = Depends(verify_api_key),
 ) -> List[ProjectResponse]:
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         projects = project_store.list_for_owner(
             conn, owner_email, limit=limit, offset=offset
         )
@@ -141,7 +141,7 @@ async def list_project_tree(
     offset: int = Query(0, ge=0, description="Number of projects to skip"),
     owner_email: str = Depends(verify_api_key),
 ) -> ProjectTreeResponse:
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         projects = project_store.list_for_owner(
             conn, owner_email, limit=limit, offset=offset
         )

@@ -2,7 +2,7 @@ from typing import Any, Dict
 
 from fastapi import HTTPException, Path, status
 
-from talkingdb.clients.sqlite import sqlite_conn
+from talkingdb.clients.sqlite import sqlite_conn, GRAPH_DB
 from talkingdb.helpers.namespace import store as namespace_store
 
 
@@ -10,7 +10,7 @@ def require_public_namespace(
     namespace: str = Path(..., description="Namespace name"),
 ) -> Dict[str, Any]:
     """Gate a route to publicly readable namespaces only."""
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         ns = namespace_store.get_namespace(conn, namespace)
     if ns is None or not ns["public_read"]:
         raise HTTPException(

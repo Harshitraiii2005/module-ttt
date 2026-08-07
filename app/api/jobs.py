@@ -19,7 +19,7 @@ def _no_store(response: Response) -> None:
 
 def _job_or_404(job_id: str) -> JobModel:
     """Return a persisted job or raise HTTP 404."""
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         job = job_store.get(conn, job_id)
     if job is None:
         raise HTTPException(
@@ -79,7 +79,7 @@ async def cancel_job(
     """Request cancellation for a queued or running job."""
     _no_store(response)
     _job_or_404(job_id)
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         updated = job_store.request_cancel(conn, job_id)
     if updated is None:
         raise HTTPException(

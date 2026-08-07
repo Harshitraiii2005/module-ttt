@@ -87,7 +87,7 @@ class JobContext:
     def _best_effort_progress(self, **kwargs: Any) -> None:
         """Write progress updates with best-effort semantics."""
         try:
-            with sqlite_conn() as conn:
+            with sqlite_conn(GRAPH_DB) as conn:
                 job_store.update_progress(conn, self.job_id, **kwargs)
         except sqlite3.OperationalError as exc:
             logger.warning(
@@ -122,7 +122,7 @@ class JobContext:
         progress_details: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Run cancel, timeout, and heartbeat checks."""
-        with sqlite_conn() as conn:
+        with sqlite_conn(GRAPH_DB) as conn:
             if job_store.is_cancel_requested(conn, self.job_id):
                 raise JobCancelled(self.job_id)
 

@@ -19,7 +19,7 @@ router = APIRouter(prefix="/public", tags=["Public"])
     description="Fetch a publicly readable namespace without authentication.",
 )
 async def list_public_namespaces() -> List[NamespaceResponse]:
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         items = namespace_store.list_public_namespaces(conn)
     return [NamespaceResponse(**ns) for ns in items]
 
@@ -39,7 +39,7 @@ async def list_public_namespace_documents(
     limit: int = Query(50, ge=1, le=200, description="Max documents to return"),
     offset: int = Query(0, ge=0, description="Number of documents to skip"),
 ) -> List[NamespaceDocumentResponse]:
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         docs = job_store.list_namespace_documents(
             conn, ns["namespace"], limit=limit, offset=offset
         )

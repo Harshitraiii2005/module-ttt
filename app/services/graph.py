@@ -4,7 +4,7 @@ from talkingdb.clients.sqlite import sqlite_conn
 
 def graph_or_404(graph_id: str) -> GraphModel:
     """Load a graph or raise HTTP 404 if it does not exist."""
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         graph = GraphModel.load(conn, graph_id, True)
 
     if graph.graph.number_of_nodes() == 0:

@@ -18,7 +18,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from fastapi.responses import StreamingResponse
 from minio.error import S3Error
-from talkingdb.clients.sqlite import sqlite_conn
+from talkingdb.clients.sqlite import sqlite_conn, GRAPH_DB
 from talkingdb.helpers import spool
 from talkingdb.helpers.release_channel import get_release_channel
 from talkingdb.helpers import file_store
@@ -165,7 +165,7 @@ async def submit_document_job(
         # another request's dedup-delete cleanup runs concurrently for the
         # same (channel, hash), it sees this row and won't remove the object
         # out from under us. See TAL-797 race-condition discussion.
-        with sqlite_conn() as conn:
+        with sqlite_conn(GRAPH_DB) as conn:
             job_store.insert(conn, job)
             file_graph_store.insert(
                 conn,
@@ -182,7 +182,7 @@ async def submit_document_job(
             # Upload genuinely failed (not a dedup race) - roll back the
             # job/mapping rows we just created so nothing points at a file
             # that was never actually stored.
-            with sqlite_conn() as conn:
+            with sqlite_conn(GRAPH_DB) as conn:
                 job_store.delete(conn, job.job_id)
                 file_graph_store.delete_by_job_id(conn, job.job_id)
             raise HTTPException(
@@ -206,7 +206,7 @@ async def submit_document_job(
             # they're orphaned: the mapping keeps pointing at a job that no
             # longer exists, and the blob is never reference-counted down.
             # Remove all three so nothing is left behind.
-            with sqlite_conn() as conn:
+            with sqlite_conn(GRAPH_DB) as conn:
                 job_store.delete(conn, job.job_id)
                 file_graph_store.delete_by_job_id(conn, job.job_id)
                 remaining = file_graph_store.get_by_channel_hash(conn, channel, file_hash)
@@ -244,7 +244,7 @@ async def list_documents(
     offset: int = Query(0, ge=0, description="Number of documents to skip"),
     api_key: str = Depends(verify_api_key),
 ) -> List[JobStatusResponse]:
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         items = job_store.list_documents(conn, session_id, limit=limit, offset=offset)
     return [JobStatusResponse(**job.to_status_payload()) for job in items]
 
@@ -268,7 +268,7 @@ async def remove_document(
 
     file_to_delete: Optional[tuple[str, str]] = None
 
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         job = job_store.get(conn, job_id)
         if job is None:
             raise HTTPException(
@@ -318,7 +318,7 @@ async def get_document_file(
     graph_id: str = Path(..., description="Graph id returned from a completed job"),
     api_key: str = Depends(verify_api_key),
 ) -> StreamingResponse:
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         mapping = file_graph_store.get_by_graph_id(conn, graph_id)
 
     if mapping is None:

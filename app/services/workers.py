@@ -13,7 +13,7 @@ from app.services import job_daemon
 
 
 def init_database():
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         GraphModel.init_db(conn)
         UserModel.init_db(conn)
         APIKeyModel.init_db(conn)

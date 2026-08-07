@@ -25,7 +25,7 @@ router = APIRouter(prefix="/v1", tags=["Namespaces"])
 async def list_namespaces(
     api_key: str = Depends(verify_api_key),
 ) -> List[NamespaceResponse]:
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         items = namespace_store.list_namespaces(conn)
     return [NamespaceResponse(**ns) for ns in items]
 
@@ -52,7 +52,7 @@ async def list_namespace_documents(
     ),
     api_key: str = Depends(verify_api_key),
 ) -> List[NamespaceDocumentResponse]:
-    with sqlite_conn() as conn:
+    with sqlite_conn(GRAPH_DB) as conn:
         if namespace_store.get_namespace(conn, namespace) is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
