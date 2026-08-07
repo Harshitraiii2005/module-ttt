@@ -1,9 +1,10 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
 
 from talkingdb.clients.sqlite import sqlite_conn
 from talkingdb.helpers.namespace import store as namespace_store
+from talkingdb.helpers.project import store as project_store
 
 from app.core import config
 
@@ -37,6 +38,31 @@ def parse_suggested_queries(
         )
 
     return cleaned or None
+
+
+def validate_project_name(name: Optional[str]) -> str:
+    name = clean_optional_text(name)
+    if name is None:
+        raise _unprocessable("name is required")
+    if len(name) > config.MAX_PROJECT_NAME_LENGTH:
+        raise _unprocessable(
+            f"name must be at most {config.MAX_PROJECT_NAME_LENGTH} characters"
+        )
+    return name
+
+
+def validate_project_owned(project_id: str, owner_email: str) -> Dict[str, Any]:
+    with sqlite_conn() as conn:
+        project = project_store.get_for_owner(conn, project_id, owner_email)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error_code": "PROJECT_NOT_FOUND",
+                "message": f"Unknown project: {project_id}",
+            },
+        )
+    return project
 
 
 def validate_namespace(namespace: Optional[str]) -> Optional[str]:

@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from talkingdb.models.document.document import DocumentModel
 from talkingdb.models.document.elements.primitive.paragraph import ParagraphModel
-from talkingdb.models.document.elements.primitive.table import TableModel
+from talkingdb.models.document.elements.primitive.table import TableModel, TableRowView
 from talkingdb.models.document.indexes.index import (
     FileIndexModel,
     IndexItem,
@@ -24,6 +24,13 @@ from app.services.package_symbol_generator import SymbolGenerator
 from talkingdb.clients.sqlite import sqlite_conn
 from talkingdb.logger.console import logger
 from app.core import config
+
+Nodes = List[Tuple[str, Dict[str, Any]]]
+Edges = List[Tuple[str, str, Dict[str, Any]]]
+
+CONTEXT_EDGE = "context"
+CONTAINS_EDGE = "contains"
+
 
 class IndexerService:
     def __init__(self, max_workers: int | None = None):
@@ -39,12 +46,7 @@ class IndexerService:
         file_index: FileIndexModel,
         progress: Optional[ProgressCallback] = None,
     ) -> GraphModel:
-        """Build the graph's tree-of-headings structure.
-
-        progress receives (done_units, total_units) updates as nodes
-        are added, mirroring the callback contract used by
-        :method:index_document.
-        """
+        """Build the graph's tree-of-headings structure."""
 
         def count_nodes(node: IndexItem) -> int:
             return 1 + sum(count_nodes(child) for child in node.child)
@@ -57,23 +59,18 @@ class IndexerService:
 
         def walk(node: IndexItem, parent_id: str = None):
             nonlocal done
-            node_id = node.id
 
-            self.gm.graph.add_node(
-                node_id,
-                label=node.label,
-                index=node.index,
-            )
+            self.gm.graph.add_node(node.id, label=node.label, index=node.index)
 
             if parent_id:
-                self.gm.graph.add_edge(parent_id, node_id, type="part_of")
+                self.gm.graph.add_edge(parent_id, node.id, type="part_of")
 
             done += 1
             if progress is not None:
                 progress(done, total)
 
             for child in node.child:
-                walk(child, node_id)
+                walk(child, node.id)
 
         self.gm.graph.add_node(
             file_index.id,
@@ -89,238 +86,223 @@ class IndexerService:
 
         return self.gm
 
-    def _prepare_table_headers(
-        self,
-        document: DocumentModel,
-        element: TableModel,
-        heading_path: List[str],
-    ) -> Dict[int, Dict[str, Any]]:
+    # ───────────────────────────────── symbols ─────────────────────────────────
 
-        header_cache = {}
+    def _symbols(self, text: str, structured: bool = False) -> List[Tuple[str, str]]:
+        """Tokenize text into (symbol, gram_type) pairs.
 
-        if not element.rows:
-            return header_cache
+        When ``structured=True``, preserves numbers and stopwords for table
+        content only, enabling table retrieval without affecting paragraph ranking.
+        """
+        if not text:
+            return []
 
-        for col_idx in range(len(element.rows[0])):
+        token_sets = [self.tokenizer.tokenize(text)]
 
-            header_text = ", ".join(
-                element.get_header(0, col_idx)
+        if structured:
+            token_sets.append(self.tokenizer.tokenize_structured(text))
+
+        return [
+            (symbol, gram)
+            for tokens in token_sets
+            for gram, symbols in self.symbol_generator.generate(tokens).items()
+            for symbol in symbols
+        ]
+
+    @staticmethod
+    def _symbol_edges(
+        owner_id: str,
+        symbols: List[Tuple[str, str]],
+        edge_type: str = CONTAINS_EDGE,
+    ) -> Tuple[Nodes, Edges]:
+        """Connect symbols to their owning nodes.
+
+        This makes table content reachable through symbol-based graph traversal.
+        """
+        nodes = [(symbol, {"type": gram}) for symbol, gram in symbols]
+        edges = [(owner_id, symbol, {"type": edge_type}) for symbol, _ in symbols]
+        return nodes, edges
+
+    # ───────────────────────────────── elements ─────────────────────────────────
+
+    def _process_paragraph(self, document: DocumentModel, element: ParagraphModel):
+        node_id = element.id
+        text = element.to_text()
+
+        metadata = {
+            "index": IndexType.PARA,
+            "heading_path": document._get_heading_path(element),
+            "filename": document.filename,
+            "page": element.page,
+        }
+
+        nodes: Nodes = [
+            (node_id, {"text": text, "metadata": metadata, "type": "paragraph"})
+        ]
+        edges: Edges = []
+
+        sym_nodes, sym_edges = self._symbol_edges(node_id, self._symbols(text))
+        nodes.extend(sym_nodes)
+        edges.extend(sym_edges)
+
+        for line in text.splitlines():
+            line = line.strip()
+            if ":" not in line:
+                continue
+
+            key_raw, val_raw = [part.strip() for part in line.split(":", 1)]
+            if not key_raw or not val_raw:
+                continue
+
+            key_id = f"key::{self.symbol_generator.max_gram(self.tokenizer.tokenize(key_raw))}"
+            val_id = f"val::{self.symbol_generator.max_gram(self.tokenizer.tokenize(val_raw, False))}"
+
+            nodes.append((key_id, {"text": key_raw, "type": "key"}))
+            nodes.append((val_id, {"text": val_raw, "type": "value"}))
+
+            edges.append((key_id, val_id, {"type": "key_value"}))
+            edges.append((node_id, key_id, {"type": CONTAINS_EDGE}))
+            edges.append((node_id, val_id, {"type": "describes"}))
+
+        return nodes, edges
+
+    def _process_table(self, document: DocumentModel, element: TableModel):
+        table_id = element.id
+
+        context = document.get_table_context(element)
+        context += list(element.column_headers().values())
+
+        metadata = {
+            "index": IndexType.TABLE,
+            "heading_path": document._get_heading_path(element),
+            "filename": document.filename,
+            "page": element.page,
+        }
+
+        nodes: Nodes = [
+            (
+                table_id,
+                {"text": element.to_html(), "metadata": metadata, "type": "table"},
             )
+        ]
 
-            header_tokens = self.tokenizer.tokenize(header_text, False)
-            header_symbols = self.symbol_generator.generate(header_tokens)
-            key_id = self.symbol_generator.max_gram(header_tokens)
+        sym_nodes, edges = self._symbol_edges(
+            table_id,
+            self._symbols(" ".join(context), structured=True),
+            CONTEXT_EDGE,
+        )
+        nodes.extend(sym_nodes)
 
-            header_cache[col_idx] = {
-                "header_text": header_text,
-                "header_symbols": header_symbols,
-                "key_id": key_id,
-                "metadata": {
-                    "index": IndexType.TABLE_HEADER,
-                    "heading_path": heading_path,
-                    "filename": document.filename,
-                    "page": element.page,
-                },
-            }
-
-        return header_cache
+        return nodes, edges
 
     def _process_table_row(
         self,
-        element: TableModel,
-        node_id: str,
-        row_idx: int,
-        header_cache: Dict[int, Dict[str, Any]],
-    ) -> Tuple[
-        List[Tuple[str, Dict[str, Any]]],
-        List[Tuple[str, str, Dict[str, Any]]],
-    ]:
+        table_id: str,
+        row: TableRowView,
+        metadata: Dict[str, Any],
+        context_symbols: List[Tuple[str, str]],
+    ):
+        row_text = row.to_text()
+        if not row_text:
+            return [], []
 
-        nodes = []
-        edges = []
+        row_id = f"{table_id}:row::{row.index}"
 
-        row = element.rows[row_idx]
+        nodes: Nodes = [
+            (
+                row_id,
+                {
+                    "text": row_text,
+                    "type": "table_row",
+                    "metadata": {
+                        **metadata,
+                        "index": IndexType.TABLE_ROW,
+                        "table_id": table_id,
+                        "row_header": row.header,
+                        "col_headers": [c.col_header for c in row.cells],
+                    },
+                },
+            )
+        ]
+        edges: Edges = [(table_id, row_id, {"type": "part_of"})]
 
-        for col_idx, cell in enumerate(row):
+        sym_nodes, sym_edges = self._symbol_edges(row_id, context_symbols, CONTEXT_EDGE)
+        nodes.extend(sym_nodes)
+        edges.extend(sym_edges)
 
-            if col_idx not in header_cache:
-                continue
+        sym_nodes, sym_edges = self._symbol_edges(
+            row_id, self._symbols(row_text, structured=True)
+        )
+        nodes.extend(sym_nodes)
+        edges.extend(sym_edges)
 
-            header_data = header_cache[col_idx]
-            header_text = header_data["header_text"]
-            header_symbols = header_data["header_symbols"]
-            key_id = header_data["key_id"]
-            header_metadata = header_data["metadata"]
+        for cell in row.cells:
+            cell_id = cell.id or f"{row_id}:cell::{cell.col}"
 
-            # HEADER NODE
             nodes.append(
                 (
-                    header_text,
+                    cell_id,
                     {
-                        "text": header_text,
-                        "metadata": header_metadata,
-                        "type": "header",
+                        "text": TableRowView(
+                            index=row.index, header=row.header, cells=[cell]
+                        ).to_text(),
+                        "type": "table_cell",
+                        "metadata": {
+                            **metadata,
+                            "index": IndexType.TABLE_CELL,
+                            "table_id": table_id,
+                            "row_id": row_id,
+                            "row_header": row.header,
+                            "col_header": cell.col_header,
+                            "value": cell.text,
+                        },
                     },
                 )
             )
+            edges.append((row_id, cell_id, {"type": "part_of"}))
 
-            edges.append((node_id, header_text, {"type": "part_of"}))
+            sym_nodes, sym_edges = self._symbol_edges(
+                cell_id,
+                self._symbols(
+                    f"{row.header} {cell.col_header} {cell.text}".strip(),
+                    structured=True,
+                ),
+            )
+            nodes.extend(sym_nodes)
+            edges.extend(sym_edges)
 
-            for symbol_type, symbol_list in header_symbols.items():
-                for symbol in symbol_list:
-                    nodes.append((symbol, {"type": symbol_type}))
-                    edges.append((header_text, symbol, {"type": "contains"}))
-
-            # CELL
-            cell_text = cell.to_text()
-            if not cell_text:
+            key_source = f"{row.header} {cell.col_header}".strip() or row.header
+            if not key_source:
                 continue
 
-            cell_tokens = self.tokenizer.tokenize(cell_text)
-            cell_symbols = self.symbol_generator.generate(cell_tokens)
+            key_id = f"key::{self.symbol_generator.max_gram(self.tokenizer.tokenize(key_source, False))}"
+            val_id = f"val::{self.symbol_generator.max_gram(self.tokenizer.tokenize(cell.text, False))}"
 
-            for symbol_type, symbol_list in cell_symbols.items():
-                for symbol in symbol_list:
-                    nodes.append((symbol, {"type": symbol_type}))
-                    edges.append((header_text, symbol, {"type": "contains"}))
+            nodes.append((key_id, {"text": key_source, "type": "key"}))
+            nodes.append((val_id, {"text": cell.text, "type": "value"}))
 
-            # KEY VALUE
-            val_tokens = self.tokenizer.tokenize(cell_text, False)
-            val_id = self.symbol_generator.max_gram(val_tokens)
-
-            nodes.append((key_id, {"text": header_text, "is_key": True}))
-            nodes.append((val_id, {"text": cell_text, "is_val": True}))
             edges.append((key_id, val_id, {"type": "key_value"}))
+            edges.append((cell_id, key_id, {"type": CONTAINS_EDGE}))
+            edges.append((cell_id, val_id, {"type": "describes"}))
 
         return nodes, edges
 
-    def _process_element(
-        self,
-        document: DocumentModel,
-        element,
-    ) -> Tuple[
-        List[Tuple[str, Dict[str, Any]]],
-        List[Tuple[str, str, Dict[str, Any]]],
-    ]:
-
-        nodes = []
-        edges = []
-
-        if isinstance(element, ParagraphModel):
-
-            node_id = element.id
-            text = element.to_text()
-
-            tokens = self.tokenizer.tokenize(text)
-            symbols = self.symbol_generator.generate(tokens)
-
-            heading_path = document._get_heading_path(element)
-
-            metadata = {
-                "index": IndexType.PARA,
-                "heading_path": heading_path,
-                "filename": document.filename,
-                "page": element.page,
-            }
-
-            nodes.append(
-                (
-                    node_id,
-                    {
-                        "text": text,
-                        "metadata": metadata,
-                        "type": "paragraph",
-                    },
-                )
-            )
-
-            for symbol_type, symbol_list in symbols.items():
-                for symbol in symbol_list:
-                    nodes.append((symbol, {"type": symbol_type}))
-                    edges.append((node_id, symbol, {"type": "contains"}))
-
-            for line in text.splitlines():
-                line = line.strip()
-                if ":" not in line:
-                    continue
-
-                key_raw, val_raw = [
-                    part.strip() for part in line.split(":", 1)
-                ]
-
-                if not key_raw or not val_raw:
-                    continue
-
-                key_tokens = self.tokenizer.tokenize(key_raw)
-                val_tokens = self.tokenizer.tokenize(val_raw, False)
-
-                key_id = self.symbol_generator.max_gram(key_tokens)
-                val_id = self.symbol_generator.max_gram(val_tokens)
-
-                nodes.append((key_id, {"text": key_raw, "is_key": True}))
-                nodes.append((val_id, {"text": val_raw, "is_val": True}))
-
-                edges.append((key_id, val_id, {"type": "key_value"}))
-                edges.append((node_id, key_id, {"type": "contains"}))
-                edges.append((node_id, val_id, {"type": "describes"}))
-
-        elif isinstance(element, TableModel):
-
-            node_id = element.caption_ref_id or element.id
-
-            caption_elem = document.get_element_by_id(
-                element.caption_ref_id
-            )
-
-            table_caption = (
-                [caption_elem.to_text()] if caption_elem else []
-            )
-
-            text = element.to_html()
-
-            heading_path = (
-                document._get_heading_path(element)
-                + table_caption
-            )
-
-            metadata = {
-                "index": IndexType.TABLE,
-                "heading_path": heading_path,
-                "filename": document.filename,
-                "page": element.page,
-            }
-
-            nodes.append(
-                (
-                    node_id,
-                    {
-                        "text": text,
-                        "metadata": metadata,
-                        "type": "table",
-                    },
-                )
-            )
-
-        return nodes, edges
+    # ───────────────────────────────── driver ─────────────────────────────────
 
     def index_document(
         self,
         document: DocumentModel,
         progress: Optional[ProgressCallback] = None,
     ) -> GraphModel:
-        """Index all document elements into the graph.
-
-        ``progress`` receives ``(done_units, total_units)`` updates during
-        execution. Exceptions raised by the callback abort indexing.
-        """
+        """Index all document elements into the graph."""
 
         start_time = time.time()
         elements = list(document.iter_elements())
 
         logger.info(f"Starting indexing for {len(elements)} elements")
 
-        all_nodes = []
-        all_edges = []
+        all_nodes: Nodes = []
+        all_edges: Edges = []
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
 
@@ -329,56 +311,39 @@ class IndexerService:
             for element in elements:
 
                 if isinstance(element, ParagraphModel):
+                    futures.append(
+                        executor.submit(self._process_paragraph, document, element)
+                    )
+                    continue
 
+                if not isinstance(element, TableModel):
+                    continue
+
+                futures.append(
+                    executor.submit(self._process_table, document, element)
+                )
+
+                metadata = {
+                    "heading_path": document._get_heading_path(element),
+                    "filename": document.filename,
+                    "page": element.page,
+                }
+
+                context_symbols = self._symbols(
+                    " ".join(document.get_table_context(element)),
+                    structured=True,
+                )
+
+                for row in element.normalized_rows():
                     futures.append(
                         executor.submit(
-                            self._process_element,
-                            document,
-                            element,
+                            self._process_table_row,
+                            element.id,
+                            row,
+                            metadata,
+                            context_symbols,
                         )
                     )
-
-                elif isinstance(element, TableModel):
-
-                    futures.append(
-                        executor.submit(
-                            self._process_element,
-                            document,
-                            element,
-                        )
-                    )
-
-                    node_id = element.caption_ref_id or element.id
-
-                    caption_elem = document.get_element_by_id(
-                        element.caption_ref_id
-                    )
-
-                    table_caption = (
-                        [caption_elem.to_text()] if caption_elem else []
-                    )
-
-                    heading_path = (
-                        document._get_heading_path(element)
-                        + table_caption
-                    )
-
-                    header_cache = self._prepare_table_headers(
-                        document,
-                        element,
-                        heading_path,
-                    )
-
-                    for row_idx, _ in enumerate(element.rows):
-                        futures.append(
-                            executor.submit(
-                                self._process_table_row,
-                                element,
-                                node_id,
-                                row_idx,
-                                header_cache,
-                            )
-                        )
 
             total = len(futures)
             if progress is not None:
@@ -424,8 +389,7 @@ class IndexerService:
         with sqlite_conn() as conn:
             self.gm.save(conn)
 
-        total_time = round(time.time() - start_time, 2)
-        logger.info(f"Indexing completed in {total_time}s")
+        logger.info(f"Indexing completed in {round(time.time() - start_time, 2)}s")
 
         self.gm.clear()
         return self.gm

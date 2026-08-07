@@ -14,6 +14,16 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+def _float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 # --------------------------------------------------------------- concurrency
 # Small bounded worker pool for CPU-heavy ingestion.
 MAX_WORKERS = _int("TDB_JOB_MAX_WORKERS", min(4, os.cpu_count() or 1))
@@ -46,13 +56,19 @@ HEARTBEAT_MIN_GAP_SECONDS = _int("TDB_JOB_HEARTBEAT_MIN_GAP_SECONDS", 2)
 
 # -------------------------------------------------------------------- timeouts
 # A job whose heartbeat is older than this is considered orphaned (its worker
-# died). Chosen to be far larger than the checkpoint interval so a healthy but
-# slow job is never killed by mistake.
+# died). Short, because a live worker's background timer beats far more
+# often than this.
 STALE_THRESHOLD_SECONDS = _int("TDB_JOB_STALE_THRESHOLD_SECONDS", 5 * 60)
 
-# Hard processing budget. Exceeding it transitions the job to FAILED(TIMEOUT),
-# checked worker-side at checkpoints with the lifecycle daemon as backstop.
-MAX_JOB_DURATION_SECONDS = _int("TDB_JOB_MAX_DURATION_SECONDS", 30 * 60)
+
+# A job whose heartbeat is still fresh but whose progress hasn't moved
+# STALE_THRESHOLD_SECONDS - this is the "wedged, not dead" case.
+STUCK_THRESHOLD_SECONDS = _int("TDB_JOB_STUCK_THRESHOLD_SECONDS", 75 * 60)
+
+# High upper safety limit only. Not tuned to any expected job duration - it
+# exists purely to guarantee nothing runs forever, as a backstop behind the
+# heartbeat/progress checks above.
+MAX_JOB_DURATION_SECONDS = _int("TDB_JOB_MAX_DURATION_SECONDS", 3 * 60 * 60)
 
 # A background timer refreshes the heartbeat at this cadence for as long as a
 # job is being processed, independent of worker-driven checkpoints.
@@ -83,3 +99,39 @@ SQLITE_BUSY_TIMEOUT_MS = _int("TDB_SQLITE_BUSY_TIMEOUT_MS", 5000)
 # Maximum number of curated suggested queries accepted per document at ingest
 # time. Curated demo documents carry a small, fixed set of examples.
 MAX_SUGGESTED_QUERIES = _int("TDB_MAX_SUGGESTED_QUERIES", 5)
+
+
+# -------------------------------------------------------------------- projects
+# Project name length bound. Names are user-supplied and shown in the Manage
+# Projects panel; the cap exists to keep a single row renderable, not for storage.
+MAX_PROJECT_NAME_LENGTH = _int("TDB_MAX_PROJECT_NAME_LENGTH", 120)
+
+# Per-project document cap in the nested project tree. Bounds the response the
+# way every other store reader is bounded; document_count still reports the true
+# total, so a UI can render "120 documents" while listing the newest N.
+TREE_DOCS_PER_PROJECT = _int("TDB_TREE_DOCS_PER_PROJECT", 50)
+
+
+# ------------------------------------------------------------------- retrieval
+# Node types that count as a retrievable element. Table units are included so table
+# rows/cells are returned by /v1/queries; without them the extractor discards every
+# table node the indexer builds.
+RETRIEVAL_ELEMENT_TYPES = ("paragraph", "table", "table_row", "table_cell")
+
+# Score multiplier per n-gram order. A longer gram is harder to hit by accident, so it is
+# stronger evidence of relevance. This weights rarity of FORM; rarity of OCCURRENCE is the
+# IDF term applied alongside it in the extractor.
+GRAM_WEIGHTS = {
+    "unigram": _int("TDB_GRAM_WEIGHT_UNIGRAM", 1),
+    "bigram": _int("TDB_GRAM_WEIGHT_BIGRAM", 4),
+    "trigram": _int("TDB_GRAM_WEIGHT_TRIGRAM", 9),
+}
+
+# Weight of a symbol match on a table's INHERITED context (its title/heading/lead-in)
+# relative to a match on the element's own text (1.0). Below 1.0 because borrowed context
+# is weaker evidence; without the discount one table's rows swamp the results.
+CONTEXT_MATCH_WEIGHT = _float("TDB_CONTEXT_MATCH_WEIGHT", 0.4)
+
+# Prevents one large table from evicting paragraph results by limiting its row/cell 
+# contributions. The full table data remains available when requested.
+MAX_ROWS_PER_TABLE = _int("TDB_MAX_ROWS_PER_TABLE", 5)

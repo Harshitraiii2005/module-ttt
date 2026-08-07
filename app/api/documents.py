@@ -1,4 +1,6 @@
 from typing import List, Optional
+from urllib.parse import quote
+import mimetypes
 
 from fastapi import (
     APIRouter,
@@ -10,10 +12,17 @@ from fastapi import (
     Query,
     UploadFile,
     status,
+    Request
 )
+from fastapi.concurrency import run_in_threadpool
 
+from fastapi.responses import StreamingResponse
+from minio.error import S3Error
 from talkingdb.clients.sqlite import sqlite_conn
 from talkingdb.helpers import spool
+from talkingdb.helpers.release_channel import get_release_channel
+from talkingdb.helpers import file_store
+from talkingdb.helpers.file_graph import store as file_graph_store
 from talkingdb.helpers.auth import verify_api_key
 from talkingdb.helpers.graph import store as graph_store
 from talkingdb.helpers.graph_cache import graph_cache
@@ -32,6 +41,7 @@ from app.api.validators import (
     clean_optional_text,
     parse_suggested_queries,
     validate_namespace,
+    validate_project_owned,
 )
 from app.core import config as job_config
 from app.model.jobs import JobAcceptedResponse, JobStatusResponse
@@ -57,10 +67,12 @@ router = APIRouter(prefix="/v1", tags=["Jobs"])
         413: {"model": ErrorResponse, "description": "File exceeds maximum allowed size"},
         415: {"model": ErrorResponse, "description": "Unsupported file type"},
         429: {"model": ErrorResponse, "description": "Worker queue is full"},
+        502: {"model": ErrorResponse, "description": "Failed to store file"},
         503: {"model": ErrorResponse, "description": "Spool storage exhausted"},
     },
 )
 async def submit_document_job(
+    request: Request,
     file: UploadFile = File(..., description="The document file to upload (.docx or .pdf)"),
     metadata: Optional[str] = Form(DEFAULT_METADATA, description="JSON metadata string"),
     session_id: Optional[str] = Form(
@@ -85,15 +97,26 @@ async def submit_document_job(
             "Curated example queries for this document; add up to 5."
         ),
     ),
-    api_key: str = Depends(verify_api_key),
+    project_id: Optional[str] = Form(
+        None,
+        description=(
+            "File this document under one of the caller's projects. Omit to "
+            "leave it at the caller's root level, outside any project."
+        ),
+    ),
+    owner_email: str = Depends(verify_api_key),
 ) -> JobAcceptedResponse:
     """Submit a document ingestion job for background processing."""
     ext = validate_file_type(file)
 
     namespace = validate_namespace(namespace)
+    project_id = clean_optional_text(project_id)
     parsed_queries = parse_suggested_queries(suggested_queries)
     title = clean_optional_text(title)
     description = clean_optional_text(description)
+
+    if project_id is not None:
+        validate_project_owned(project_id, owner_email)
 
     spool.assert_spool_capacity()
 
@@ -121,12 +144,13 @@ async def submit_document_job(
         )
 
         metadata_json = metadata if metadata else DEFAULT_METADATA
-
         job = JobModel.new(
             job_type=JobType.DOCUMENT,
             filename=file.filename,
             session_id=session_id,
             namespace=namespace,
+            owner_email=owner_email,
+            project_id=project_id,
             title=title,
             description=description,
             suggested_queries=parsed_queries,
@@ -134,15 +158,62 @@ async def submit_document_job(
         job.file_size_bytes = size_bytes
         job.temp_path = temp_path
 
+        channel = get_release_channel(request)
+        file_hash = await run_in_threadpool(file_store.compute_sha256, temp_path)
+
+        # Mapping row is created BEFORE the MinIO upload so that, even if
+        # another request's dedup-delete cleanup runs concurrently for the
+        # same (channel, hash), it sees this row and won't remove the object
+        # out from under us. See TAL-797 race-condition discussion.
         with sqlite_conn() as conn:
             job_store.insert(conn, job)
+            file_graph_store.insert(
+                conn,
+                channel=channel,
+                file_hash=file_hash,
+                job_id=job.job_id,
+                filename=file.filename,
+            )
 
-        jobs.enqueue_reserved(
-            job_id=job.job_id,
-            temp_path=temp_path,
-            filename=file.filename or f"upload.{ext}",
-            metadata_json=metadata_json,
-        )
+        try:
+            # upload_file() does a blocking network call to MinIO.
+            await run_in_threadpool(file_store.upload_file, channel, file_hash, temp_path)
+        except Exception:
+            # Upload genuinely failed (not a dedup race) - roll back the
+            # job/mapping rows we just created so nothing points at a file
+            # that was never actually stored.
+            with sqlite_conn() as conn:
+                job_store.delete(conn, job.job_id)
+                file_graph_store.delete_by_job_id(conn, job.job_id)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "error_code": "STORAGE_UPLOAD_FAILED",
+                    "message": "Failed to store file",
+                },
+            )
+
+        try:
+            jobs.enqueue_reserved(
+                job_id=job.job_id,
+                temp_path=temp_path,
+                filename=file.filename or f"upload.{ext}",
+                metadata_json=metadata_json,
+            )
+        except Exception:
+            # The blob and mapping row were already created above - if we
+            # only clean up the spool file here (via the outer `finally`),
+            # they're orphaned: the mapping keeps pointing at a job that no
+            # longer exists, and the blob is never reference-counted down.
+            # Remove all three so nothing is left behind.
+            with sqlite_conn() as conn:
+                job_store.delete(conn, job.job_id)
+                file_graph_store.delete_by_job_id(conn, job.job_id)
+                remaining = file_graph_store.get_by_channel_hash(conn, channel, file_hash)
+            if not remaining:
+                await run_in_threadpool(file_store.delete_file, channel, file_hash)
+            raise
+
         enqueued = True
 
         return JobAcceptedResponse(
@@ -195,6 +266,8 @@ async def remove_document(
     deleted = False
     graph_id: Optional[str] = None
 
+    file_to_delete: Optional[tuple[str, str]] = None
+
     with sqlite_conn() as conn:
         job = job_store.get(conn, job_id)
         if job is None:
@@ -209,13 +282,97 @@ async def remove_document(
 
         if final.is_terminal():
             graph_id = final.result_graph_id
-            graph_store.delete(conn, graph_id)
+            if graph_id:
+                graph_store.delete(conn, graph_id)
             job_store.delete(conn, job_id)
+
+            mapping = file_graph_store.get_by_job_id(conn, job_id)
+            if mapping is not None:
+                file_graph_store.delete_by_job_id(conn, job_id)
+                remaining = file_graph_store.get_by_channel_hash(
+                    conn, mapping.channel, mapping.file_hash)
+                if not remaining:
+                    file_to_delete = (mapping.channel, mapping.file_hash)
+
             deleted = True
 
     if deleted:
         if graph_id:
             graph_cache.invalidate(graph_id)
         spool.discard(job.temp_path)
+        if file_to_delete is not None:
+            file_store.delete_file(*file_to_delete)
 
     return JobStatusResponse(**final.to_status_payload())
+
+
+@router.get(
+    "/documents/{graph_id}/file",
+    summary="Download the original uploaded file",
+    responses={
+        401: {"model": ErrorResponse, "description": "Invalid or missing API key"},
+        404: {"model": ErrorResponse, "description": "No file found for this graph"},
+    },
+)
+async def get_document_file(
+    graph_id: str = Path(..., description="Graph id returned from a completed job"),
+    api_key: str = Depends(verify_api_key),
+) -> StreamingResponse:
+    with sqlite_conn() as conn:
+        mapping = file_graph_store.get_by_graph_id(conn, graph_id)
+
+    if mapping is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error_code": "FILE_NOT_FOUND",
+                "message": f"No file found for graph_id: {graph_id}",
+            },
+        )
+
+    # Validate the object exists (and grab its size) before opening a stream.
+    stat = await run_in_threadpool(file_store.stat_file, mapping.channel, mapping.file_hash)
+    if stat is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error_code": "FILE_NOT_FOUND", "message": "File missing from storage"},
+        )
+
+    stream = await run_in_threadpool(
+        file_store.get_file_stream, mapping.channel, mapping.file_hash
+    )
+    if stream is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error_code": "FILE_NOT_FOUND", "message": "File missing from storage"},
+        )
+
+    filename = mapping.filename or mapping.file_hash
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+    # RFC 6266: ASCII fallback in `filename`, UTF-8 percent-encoded form in
+    # `filename*`. Avoids a 500 on non-ASCII names and malformed headers on
+    # names containing quotes.
+    ascii_fallback = filename.encode("ascii", "replace").decode("ascii").replace('"', "_")
+    encoded_filename = quote(filename, safe="")
+
+    disposition_type = "inline" if content_type == "application/pdf" else "attachment"
+
+    def _iter_and_close():
+        try:
+            for chunk in stream.stream(32 * 1024):
+                yield chunk
+        finally:
+            stream.close()
+            stream.release_conn()
+
+    return StreamingResponse(
+        _iter_and_close(),
+        media_type=content_type,
+        headers={"Content-Disposition": (
+                f'{disposition_type}; filename="{ascii_fallback}"; '
+                f"filename*=UTF-8''{encoded_filename}"
+            ),
+            "Content-Length": str(stat.size),
+        },
+    )

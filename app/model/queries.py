@@ -31,9 +31,21 @@ class MatchedNode(BaseModel):
     id: str = Field(..., description="Unique identifier of the matched node")
     graph_id: str = Field(..., description="ID of the graph containing this node")
     content: Optional[str] = Field(None, description="Text content of the node")
-    type: Optional[str] = Field(None, description="Node type (e.g., 'paragraph', 'table')")
+    type: Optional[str] = Field(
+        None,
+        description="Node type: 'paragraph', 'table', 'table_row', 'table_cell'",
+    )
     score: float = Field(..., description="Relevance score for the match")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Additional node metadata")
+
+    row_header: Optional[str] = Field(
+        None, description="Row header of a matched table cell/row")
+    col_header: Optional[str] = Field(
+        None, description="Column header of a matched table cell")
+    table_id: Optional[str] = Field(
+        None, description="Id of the table a matched row/cell belongs to")
+    page: Optional[int] = Field(
+        None, description="Source page of the matched element, for citation")
 
 
 class QueryResponse(BaseModel):
