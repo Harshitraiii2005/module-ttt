@@ -1,79 +1,114 @@
 """Provider-agnostic LLM configuration and client.
 
 Reads LLM_PROVIDER from the environment and talks to whichever provider
-was selected at setup time (see infra-tdb-platform's configure_llm_provider.sh).
+was selected at setup time (see infra-tdb-platform's scripts/bootstrap.sh).
 
-OpenAI, Grok, and Ollama all speak the same "OpenAI-compatible" chat
-completions API, so a single client class covers all three - only the
-base_url, api_key, and model differ per provider.
+LiteLLM is the integration point, not a hand-rolled per-provider client:
+it owns the actual protocol work per provider (request shape, auth
+headers, response parsing, retries) so we never hand-write a
+provider-specific client. What LiteLLM does NOT do for us is decide which
+provider/model/credential a given deployment should use - that's
+inherently routing configuration, not integration logic, and every
+LiteLLM consumer needs some form of it (LiteLLM's own proxy config.yaml
+has the identical shape: a table mapping model name -> {model, api_key,
+api_base}).
+
+PROVIDERS below is exactly that table, and it's the ONLY thing that grows
+when a new provider is added - _resolve_call_kwargs() itself never
+changes. Adding a new cloud provider that authenticates with a single
+bearer-style API key (most of them: OpenAI, Grok, Anthropic, Cohere,
+Groq, Mistral, DeepSeek...) means adding one row here, nothing else.
+
+Grok and Ollama are both reached through LiteLLM's OpenAI-compatible
+routing (Grok via the "xai/" prefix, Ollama via the generic "openai/"
+prefix + api_base, since Ollama's OpenAI-compatible endpoint is what
+OLLAMA_BASE_URL already points at) - only OpenAI needs no prefix at all.
 """
 
 import os
-import httpx
+import litellm
 
-from openai import OpenAI, BadRequestError
+from talkingdb.logger.console import logger
 
 # --------------------------------------------------------------- providers
-# Model IDs are fixed per provider (not user-configurable), matching what
-# was decided during setup. Only the API key (cloud) or base URL (local)
-# comes from the environment.
-PROVIDER_MODELS = {
-    "openai": "gpt-5.4-mini",
-    "grok": "grok-4.3",
-    "ollama": "qwen3:4b",
+# One row per provider.
+#
+#   model  : the model ID passed to the provider itself (fixed per
+#            provider, not user-configurable - decided at setup time).
+#   prefix : LiteLLM's own routing prefix for this provider (see
+#            docs.litellm.ai/docs/providers). "" for OpenAI, which is
+#            LiteLLM's implicit default and needs no prefix.
+#   local  : True if this provider runs locally and is configured via
+#            <PROVIDER>_BASE_URL instead of <PROVIDER>_API_KEY.
+PROVIDERS = {
+    "openai": {"model": "gpt-5.4-mini", "prefix": "", "local": False},
+    "grok": {"model": "grok-4.3", "prefix": "xai/", "local": False},
+    "ollama": {"model": "qwen3:4b", "prefix": "openai/", "local": True},
 }
 
-OPENAI_BASE_URL = "https://api.openai.com/v1"
-# Grok's OpenAI-compatible endpoint. OpenAI needs no base_url override -
-# the SDK already points at OpenAI by default.
-GROK_BASE_URL = "https://api.x.ai/v1"
+DEFAULT_OLLAMA_BASE_URL = "http://host.docker.internal:11434/v1"
 
-# Default local Ollama address. Only overridden if the user set
-# OLLAMA_BASE_URL explicitly (e.g. Ollama running on a different host/port).
-DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
+# Ollama doesn't check the API key, but LiteLLM's OpenAI-compatible path
+# may still expect a non-empty string depending on version/config.
+_LOCAL_PLACEHOLDER_API_KEY = "not-needed"
 
 
 class LLMNotConfiguredError(Exception):
     """Raised when LLM_PROVIDER is missing/unknown or a required secret is absent."""
 
 
-def _build_client(provider: str) -> OpenAI:
-    """Create an OpenAI-compatible client for the given provider."""
-    if provider == "openai":
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise LLMNotConfiguredError("OPENAI_API_KEY is not set")
-        return OpenAI(api_key=api_key, base_url=OPENAI_BASE_URL)
+def _resolve_call_kwargs(provider: str) -> dict:
+    """Build the litellm.completion() kwargs (model/api_key/api_base) for a provider.
 
-    if provider == "grok":
-        api_key = os.getenv("GROK_API_KEY")
-        print('#####################')
-        print(api_key)
-        if not api_key:
-            raise LLMNotConfiguredError("GROK_API_KEY is not set")
-        return OpenAI(api_key=api_key, base_url=GROK_BASE_URL)
+    Table-driven, not branched: every provider in PROVIDERS is handled by
+    the same two code paths (local vs. cloud) below. Adding a new cloud
+    provider that takes a single API key never touches this function.
+    """
+    cfg = PROVIDERS.get(provider)
+    if cfg is None:
+        raise LLMNotConfiguredError(
+            f"Unknown LLM_PROVIDER: {provider!r}. Supported: {sorted(PROVIDERS)}"
+        )
 
-    if provider == "ollama":
-        base_url = os.getenv("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
-        # Ollama doesn't check the key, but the SDK requires a non-empty string.
-        return OpenAI(api_key="ollama", base_url=base_url)
+    model = f"{cfg['prefix']}{cfg['model']}"
 
-    raise LLMNotConfiguredError(f"Unknown LLM_PROVIDER: {provider!r}")
+    if cfg["local"]:
+        base_url = os.getenv(f"{provider.upper()}_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
+        return {"model": model, "api_key": _LOCAL_PLACEHOLDER_API_KEY, "api_base": base_url}
+
+    key_name = f"{provider.upper()}_API_KEY"
+    api_key = os.getenv(key_name)
+    if not api_key:
+        raise LLMNotConfiguredError(f"{key_name} is not set")
+    return {"model": model, "api_key": api_key}
+
+
+def is_configured() -> bool:
+    """Whether LLM_PROVIDER and its required secret/URL are set. Used at startup."""
+    provider = os.getenv("LLM_PROVIDER")
+    if not provider:
+        return False
+    try:
+        _resolve_call_kwargs(provider)
+        return True
+    except LLMNotConfiguredError:
+        return False
 
 
 def get_llm_response(prompt: str) -> str:
     """Send a prompt to the configured provider and return the text response."""
     provider = os.getenv("LLM_PROVIDER")
-    print("########################")
-    print(provider)
     if not provider:
         raise LLMNotConfiguredError("LLM_PROVIDER is not set")
 
-    client = _build_client(provider)
-    model = PROVIDER_MODELS[provider]
+    kwargs = _resolve_call_kwargs(provider)
 
-    completion = client.chat.completions.create(
-        model=model,
+    if PROVIDERS[provider]["local"]:
+        prompt = f"{prompt} /no_think"
+
+    completion = litellm.completion(
         messages=[{"role": "user", "content": prompt}],
+        timeout=300,
+        **kwargs
     )
     return completion.choices[0].message.content

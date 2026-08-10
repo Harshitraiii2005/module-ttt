@@ -2,7 +2,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 
-from talkingdb.clients.sqlite import sqlite_conn
+from talkingdb.clients.sqlite import sqlite_conn, GRAPH_DB
 from talkingdb.helpers.auth import verify_api_key
 from talkingdb.helpers.job import store as job_store
 from talkingdb.helpers.namespace import store as namespace_store

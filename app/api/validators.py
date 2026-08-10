@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
 
-from talkingdb.clients.sqlite import sqlite_conn
+from talkingdb.clients.sqlite import sqlite_conn, GRAPH_DB
 from talkingdb.helpers.namespace import store as namespace_store
 from talkingdb.helpers.project import store as project_store
 
