@@ -1,0 +1,32 @@
+coverage:
+  status:
+    project:
+      default:
+        # Don't fail small early PRs while the suite is still thin;
+        # tighten this once coverage has a real baseline.
+        target: auto
+        threshold: 1%
+        informational: true
+    patch:
+      default:
+        target: 80%
+        informational: true
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false
+
+ignore:
+  - "tests/**"
+  - "assets/**"
+  - "app/main.py"
+  - "app/services/job_daemon.py"
+  # Unimportable at the currently pinned dependency revisions - see the
+  # matching comment in pyproject.toml [tool.coverage.run] and
+  # tests/known_issues/test_unimportable_modules.py.
+  - "app/api/documents.py"
+  - "app/api/projects.py"
+  - "app/api/validators.py"
+  - "app/services/jobs.py"
+  - "app/services/workers.py"
