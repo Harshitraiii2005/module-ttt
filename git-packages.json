@@ -18,5 +18,10 @@
     "package-name": "package-content-elementizer",
     "git_path": "git+https://github.com/TalkingDB/package-content-elementizer.git",
     "local_path": "../package-content-elementizer"
+  },
+  "package-named-entity-linker": {
+    "package-name": "package-named-entity-linker",
+    "git_path": "git+https://github.com/TalkingDB/package-named-entity-linker.git",
+    "local_path": "../package-named-entity-linker"
   }
 }
