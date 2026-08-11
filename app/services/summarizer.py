@@ -17,19 +17,22 @@ MAX_CHARS_PER_ELEMENT = 2000
 
 def _build_prompt(query: str, elements: List[Dict[str, Any]]) -> str:
     chunks = []
-    for i, element in enumerate(elements[:MAX_ELEMENTS], start=1):
+    for element in elements[:MAX_ELEMENTS]:
         content = (element.get("content") or "").strip()
         if not content:
             continue
         chunks.append(content[:MAX_CHARS_PER_ELEMENT])
 
-    joined = "\n\n".join(f"[{i}] {chunk}" for i, chunk in enumerate(chunks, start=1))
+    joined = "\n\n".join(
+        f"[{i}] {chunk}"
+        for i, chunk in enumerate(chunks, start=1)
+    )
     return (f"""
         You are a document assistant. Answer the user's question using ONLY the provided document excerpts.
 
-    Question: ${query}
+    Question: {query}
 
-    Relevant document excerpts: ${joined}
+    Relevant document excerpts: {joined}
 
     ## Quick Answer
     Write 1–3 plain-English sentences that directly answer the question.

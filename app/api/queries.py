@@ -1,16 +1,15 @@
-import logging
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from talkingdb.helpers.auth import verify_api_key
 from talkingdb.models.api.response import ErrorResponse
+from talkingdb.logger.console import logger
 
 from app.model.queries import QueryRequest, QueryResponse
 from app.services.extractor import ExtractorService
 from app.services.summarizer import summarize_elements
 
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["Queries"])
 
@@ -77,8 +76,6 @@ async def query_documents(
         try:
             summary = summarize_elements(query=request.text, elements=elements)
         except Exception as e:
-            print('!!!!!!!!!!!!!!!!!!!!!!!!!!')
-            print(e)
             # Don't fail the whole query just because summarization failed -
             # the caller still gets their matched elements back.
             logger.warning("Summarization failed for query %r: %s", request.text, e)
