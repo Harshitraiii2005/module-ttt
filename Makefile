@@ -5,7 +5,7 @@ MODE ?= $(DEFAULT_MODE)
 
 .DEFAULT_GOAL := help
 
-# Written by infra-tdb-platform's configure_llm_provider.sh during DevPod
+# Written to .secrets_mode file in module-ttt during DevPod
 # setup: "infisical" if the user chose Infisical for secrets, "dotenv" if
 # they chose a plain .env file. Defaults to "infisical" if the file is
 # missing (e.g. running outside DevPod / before setup has run).
