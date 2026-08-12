@@ -43,6 +43,7 @@ jobs:
             --cov-report=xml \
             --cov-report=term-missing \
             --junitxml=junit.xml
+        continue-on-error: true
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
@@ -58,3 +59,54 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./junit.xml
+
+      - name: Parse test results for badge
+        if: ${{ !cancelled() }}
+        run: |
+          python3 -c "
+          import xml.etree.ElementTree as ET
+          import os
+
+          tree = ET.parse('junit.xml')
+          root = tree.getroot()
+          suites = root.findall('testsuite') if root.tag == 'testsuites' else [root]
+
+          total = failed = errors = skipped = 0
+          for suite in suites:
+              total += int(suite.get('tests', 0))
+              failed += int(suite.get('failures', 0))
+              errors += int(suite.get('errors', 0))
+              skipped += int(suite.get('skipped', 0))
+
+          failed_total = failed + errors
+          passed = total - failed_total - skipped
+          message = f'{passed} passed, {failed_total} failed'
+          color = 'brightgreen' if failed_total == 0 else 'red'
+
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write(f'TEST_BADGE_MESSAGE={message}\n')
+              f.write(f'TEST_BADGE_COLOR={color}\n')
+
+          print(message)
+          "
+
+      - name: Upload test badge to Gist
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
+        uses: schneegans/dynamic-badges-action@v1.7.0
+        with:
+          auth: ${{ secrets.GIST_SECRET }}
+          gistID: <your-gist-id>
+          filename: module-ttt-tests-badge.json
+          label: Tests
+          message: ${{ env.TEST_BADGE_MESSAGE }}
+          color: ${{ env.TEST_BADGE_COLOR }}
+
+      - name: Fail job if tests failed
+        if: ${{ !cancelled() }}
+        run: |
+          if grep -q 'failures="0" errors="0"' junit.xml; then
+            echo "All tests passed"
+          else
+            echo "Some tests failed"
+            exit 1
+          fi
