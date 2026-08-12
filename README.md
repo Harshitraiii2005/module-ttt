@@ -12,6 +12,12 @@
 <p align="center">
   <img src="https://img.shields.io/github/last-commit/TalkingDB/module-ttt?style=flat-square&label=last%20commit&color=4c1" />
   <img src="https://img.shields.io/github/contributors/TalkingDB/module-ttt?style=flat-square&label=contributors&color=e05d44" />
+  <a href="https://github.com/TalkingDB/module-ttt/actions/workflows/test.yaml">
+    <img src="https://github.com/TalkingDB/module-ttt/actions/workflows/test.yaml/badge.svg" />
+  </a>
+  <a href="https://codecov.io/gh/TalkingDB/module-ttt">
+    <img src="https://codecov.io/gh/TalkingDB/module-ttt/branch/main/graph/badge.svg" />
+  </a>
   <img src="https://img.shields.io/badge/language-Python-3776AB?style=flat-square&logo=python&logoColor=white" />
   <img src="https://img.shields.io/github/license/TalkingDB/module-ttt?style=flat-square&label=License&color=4c1" />
   <img src="https://img.shields.io/badge/release-v2.5.3-4c1?style=flat-square" />
