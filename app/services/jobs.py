@@ -10,7 +10,7 @@ from typing import Optional, Tuple
 
 from starlette.datastructures import UploadFile
 
-from talkingdb.clients.sqlite import sqlite_conn
+from talkingdb.clients.sqlite import sqlite_conn, GRAPH_DB
 from talkingdb.helpers import spool
 from talkingdb.helpers.client import config as ce_config
 from talkingdb.helpers.graph import rollback_graph

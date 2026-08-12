@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
-from talkingdb.clients.sqlite import sqlite_conn
+from talkingdb.clients.sqlite import sqlite_conn, GRAPH_DB
 from talkingdb.logger.console import logger
 from talkingdb.helpers.job import store as job_store
 from talkingdb.models.job.stage import JobStage
