@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Path, Response, status
 
-from talkingdb.clients.sqlite import sqlite_conn
+from talkingdb.clients.sqlite import sqlite_conn, GRAPH_DB
 from talkingdb.helpers.auth import verify_api_key
 from talkingdb.helpers.job import store as job_store
 from talkingdb.models.api.response import ErrorResponse

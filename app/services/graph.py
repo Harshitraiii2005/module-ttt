@@ -1,6 +1,6 @@
 from fastapi import HTTPException, status
 from talkingdb.models.graph.graph import GraphModel
-from talkingdb.clients.sqlite import sqlite_conn
+from talkingdb.clients.sqlite import sqlite_conn, GRAPH_DB
 
 def graph_or_404(graph_id: str) -> GraphModel:
     """Load a graph or raise HTTP 404 if it does not exist."""

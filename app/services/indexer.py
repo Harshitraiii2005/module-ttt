@@ -21,7 +21,7 @@ from talkingdb.models.document.indexes.index import (
 from talkingdb.models.graph.graph import GraphModel
 from app.services.package_text_tokenizer import TextTokenizer
 from app.services.package_symbol_generator import SymbolGenerator
-from talkingdb.clients.sqlite import sqlite_conn
+from talkingdb.clients.sqlite import sqlite_conn, GRAPH_DB
 from talkingdb.logger.console import logger
 from app.core import config
 
