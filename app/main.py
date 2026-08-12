@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.api import root, index, documents, jobs, queries, namespaces, projects, public, tree, auth
+from app.core.upload_limit import UploadSizeLimitMiddleware
 from app.services import job_daemon
 from app.services.workers import init_database
 
@@ -16,6 +17,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan, title="Module TalkingDB")
+
+app.add_middleware(UploadSizeLimitMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
