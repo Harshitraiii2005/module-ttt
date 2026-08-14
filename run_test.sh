@@ -27,7 +27,7 @@ rm -rf venv
 source venv/bin/activate
 
 pip install --upgrade pip
-pip install -r requirements.txt -r requirements-dev.txt
+pip install -r requirements.txt pytest pytest-cov pytest-asyncio httpx
 python -m spacy download en_core_web_md
 
 pytest tests/ -q --cov=app --cov-report=term-missing
