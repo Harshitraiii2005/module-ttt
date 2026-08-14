@@ -5,19 +5,56 @@ MODE ?= $(DEFAULT_MODE)
 
 .DEFAULT_GOAL := help
 
+
 local:
-	infisical run --watch -- poetry run python -m spacy download en_core_web_md && poetry run python -m debugpy --listen 0.0.0.0:5690 -m uvicorn app.main:app --host 0.0.0.0 --port 8090 --loop uvloop --http httptools --reload --reload-dir ./ --reload-dir ../base-tdb-models --reload-dir ../base-tdb-clients --reload-dir ../base-tdb-helpers --reload-dir ../package-content-elementizer
+	infisical run --watch -- poetry run python -m spacy download en_core_web_md && \
+	poetry run python -m debugpy --listen 0.0.0.0:5690 \
+		-m uvicorn app.main:app \
+		--host 0.0.0.0 \
+		--port 8090 \
+		--loop uvloop \
+		--http httptools \
+		--reload \
+		--reload-dir ./ \
+		--reload-dir ../base-tdb-models \
+		--reload-dir ../base-tdb-clients \
+		--reload-dir ../base-tdb-helpers \
+		--reload-dir ../package-content-elementizer
+
 
 run:
-	infisical run -- poetry run python -m spacy download en_core_web_md && poetry run python -m uvicorn app.main:app --host 0.0.0.0 --port 8090 --workers 4 --loop uvloop --http httptools
+	infisical run -- poetry run python -m spacy download en_core_web_md && \
+	poetry run python -m uvicorn app.main:app \
+		--host 0.0.0.0 \
+		--port 8090 \
+		--workers 4 \
+		--loop uvloop \
+		--http httptools
+
+
+test:
+	@echo "🧪 Running tests with coverage..."
+	poetry run pytest \
+		--cov=app \
+		--cov-report=term-missing \
+		--cov-report=xml
+
+
+install-dev:
+	@echo "📦 Installing development dependencies..."
+	poetry install --with dev --no-interaction --no-ansi
+	@echo "✅ Development dependencies installed!"
+
 
 sync:
 	@echo "🔄 Running sync_git_deps.py with mode: $(MODE)"
 	python3 sync_git_deps.py --mode "$(MODE)"
 
+
 sync-dry-run:
 	@echo "🔍 Dry-run sync for validation (mode: $(MODE))"
 	python3 sync_git_deps.py --mode "$(MODE)" --dry-run
+
 
 install-hooks:
 	@echo "Installing git hooks..."
@@ -25,11 +62,15 @@ install-hooks:
 	@chmod +x .git/hooks/* 2>/dev/null || true
 	@echo "Git hooks installed!"
 
+
 help:
 	@echo ""
 	@echo "Targets:"
-	@echo "  make local   → start local stack"
-	@echo "  make sync MODE=<git|local>      → sync git deps (default: git)"
+	@echo "  make local                         → start local stack"
+	@echo "  make run                           → start production server"
+	@echo "  make test                          → run tests with coverage"
+	@echo "  make install-dev                   → install development dependencies"
+	@echo "  make sync MODE=<git|local>         → sync git deps (default: git)"
 	@echo "  make sync-dry-run MODE=<git|local> → validate deps without changing files"
-	@echo "  install-hooks → install git hooks"
+	@echo "  make install-hooks                 → install git hooks"
 	@echo ""
