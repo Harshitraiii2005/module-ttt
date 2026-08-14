@@ -1,21 +1,40 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.api import root, index, documents, jobs, queries, namespaces, projects, public, tree, auth
+from app.core.upload_limit import UploadSizeLimitMiddleware
+from app.core import llm
 from app.services import job_daemon
 from app.services.workers import init_database
+from talkingdb.logger.console import logger
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_database()
     job_daemon.start()
+
+    provider = os.getenv("LLM_PROVIDER")
+    if llm.is_configured():
+        logger.info("LLM summarization ready (provider=%s)", provider)
+    else:
+        logger.warning(
+            "LLM summarization not configured (LLM_PROVIDER=%s) - "
+            "/v1/queries will return summary=null regardless of the "
+            "summarize flag until it's set up",
+            provider,
+        )
+
     yield
     job_daemon.stop()
 
 
 app = FastAPI(lifespan=lifespan, title="Module TalkingDB")
+
+app.add_middleware(UploadSizeLimitMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

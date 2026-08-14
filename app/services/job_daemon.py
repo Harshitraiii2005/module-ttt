@@ -33,7 +33,7 @@ import os
 import threading
 from datetime import datetime, timedelta, timezone
 
-from talkingdb.clients.sqlite import sqlite_conn
+from talkingdb.clients.sqlite import sqlite_conn, GRAPH_DB
 from talkingdb.helpers import spool
 from talkingdb.logger.console import logger
 from talkingdb.helpers.job import store as job_store

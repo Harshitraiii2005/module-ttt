@@ -28,9 +28,12 @@ from talkingdb.helpers.graph import store as graph_store
 from talkingdb.helpers.graph_cache import graph_cache
 from talkingdb.helpers.job import store as job_store
 from talkingdb.helpers.validation import (
+    assert_content_length_within_cap,
     validate_file_type,
     max_file_size_bytes_for,
     max_file_size_mb_for,
+    max_supported_file_size_mb,
+    supported_upload_types,
 )
 from talkingdb.models.api.response import ErrorResponse
 from talkingdb.models.job.job import JobModel
@@ -44,11 +47,34 @@ from app.api.validators import (
     validate_project_owned,
 )
 from app.core import config as job_config
+from app.model.documents import UploadConstraintsResponse
 from app.model.jobs import JobAcceptedResponse, JobStatusResponse
 from app.services import jobs
 
 
 router = APIRouter(prefix="/v1", tags=["Jobs"])
+
+
+@router.get(
+    "/documents/constraints",
+    response_model=UploadConstraintsResponse,
+    summary="Upload requirements: accepted file types and their size caps",
+    description=(
+        "The upload rules enforced by `POST /v1/documents`, exposed so the UI "
+        "can validate files before uploading. Size limits are per file type, so "
+        "a file within the overall limit may still exceed its type-specific limit."
+    ),
+    responses={
+        401: {"model": ErrorResponse, "description": "Invalid or missing API key"},
+    },
+)
+async def get_upload_constraints(
+    api_key: str = Depends(verify_api_key),
+) -> UploadConstraintsResponse:
+    return UploadConstraintsResponse(
+        supported_types=supported_upload_types(),
+        max_file_size_mb=max_supported_file_size_mb(),
+    )
 
 
 @router.post(
@@ -108,6 +134,8 @@ async def submit_document_job(
 ) -> JobAcceptedResponse:
     """Submit a document ingestion job for background processing."""
     ext = validate_file_type(file)
+
+    assert_content_length_within_cap(request.headers.get("content-length"), ext)
 
     namespace = validate_namespace(namespace)
     project_id = clean_optional_text(project_id)

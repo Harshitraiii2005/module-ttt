@@ -18,6 +18,27 @@ class ProjectCreateRequest(BaseModel):
     )
 
 
+class ProjectRenameRequest(BaseModel):
+    name: str = Field(
+        ...,
+        description=(
+            "New project name. Trimmed and whitespace-collapsed before it is "
+            "stored, and must be unique among the caller's projects "
+            "case-insensitively. Nothing else about the project changes."
+        ),
+    )
+
+
+class ProjectDocumentRequest(BaseModel):
+    job_id: str = Field(
+        ...,
+        description=(
+            "Document (job) id to file under this project. A document filed "
+            "under another project is moved, not copied."
+        ),
+    )
+
+
 class ProjectResponse(BaseModel):
     project_id: str = Field(..., description="Stable project id")
     name: str = Field(..., description="Project name")

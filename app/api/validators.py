@@ -1,8 +1,9 @@
+import unicodedata
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
 
-from talkingdb.clients.sqlite import sqlite_conn
+from talkingdb.clients.sqlite import sqlite_conn, GRAPH_DB
 from talkingdb.helpers.namespace import store as namespace_store
 from talkingdb.helpers.project import store as project_store
 
@@ -44,6 +45,13 @@ def validate_project_name(name: Optional[str]) -> str:
     name = clean_optional_text(name)
     if name is None:
         raise _unprocessable("name is required")
+
+    if any(unicodedata.category(ch) in ("Cc", "Cf") for ch in name):
+        raise _unprocessable("name must not contain control characters")
+
+    name = " ".join(name.split())
+    name = unicodedata.normalize("NFC", name)
+
     if len(name) > config.MAX_PROJECT_NAME_LENGTH:
         raise _unprocessable(
             f"name must be at most {config.MAX_PROJECT_NAME_LENGTH} characters"
